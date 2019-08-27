@@ -9,6 +9,7 @@
     <ClCompile Include="interfaceutils.cpp" />
     <ClCompile Include="netmonitor.cpp" />
     <ClCompile Include="routemanager.cpp" />
+    <ClCompile Include="adapters.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="stdafx.h" />
@@ -19,6 +20,7 @@
     <ClInclude Include="interfaceutils.h" />
     <ClInclude Include="netmonitor.h" />
     <ClInclude Include="routemanager.h" />
+    <ClInclude Include="adapters.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="winnet.def" />

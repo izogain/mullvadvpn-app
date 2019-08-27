@@ -3,7 +3,10 @@
 #include <string>
 #include <memory>
 #include <vector>
+#include <list>
 #include <stdexcept>
+#include <optional>
+#include <mutex>
 #include <winsock2.h>
 #include <windows.h>
 #include <ws2def.h>
@@ -16,99 +19,58 @@ namespace routemanager {
 using Network = IP_ADDRESS_PREFIX;
 using NodeAddress = SOCKADDR_INET;
 
+bool EqualAddress(const Network &lhs, const Network &rhs);
+bool EqualAddress(const NodeAddress &lhs, const NodeAddress &rhs);
+
 class Node
 {
 public:
 
-	Node(const std::wstring *deviceName, const NodeAddress *gateway)
+	Node(const std::wstring &deviceName)
+		: m_deviceName(deviceName)
 	{
-		if (nullptr == deviceName && nullptr == gateway)
+	}
+
+	Node(const NodeAddress &gateway)
+		: m_gateway(gateway)
+	{
+	}
+
+	const std::optional<std::wstring> &deviceName() const
+	{
+		return m_deviceName;
+	}
+
+	const std::optional<NodeAddress> &gateway() const
+	{
+		return m_gateway;
+	}
+
+	bool operator==(const Node &rhs) const
+	{
+		if (m_deviceName.has_value())
 		{
-			throw std::runtime_error("Invalid 'Node' definition");
+			return rhs.deviceName().has_value()
+				&& 0 == _wcsicmp(m_deviceName.value().c_str(), rhs.deviceName().value().c_str());
 		}
 
-		if (nullptr != deviceName)
-		{
-			m_deviceName = std::make_unique<std::wstring>(*deviceName);
-		}
-
-		if (nullptr != gateway)
-		{
-			m_gateway = std::make_unique<NodeAddress>(*gateway);
-		}
-	}
-
-	Node(const Node &rhs)
-	{
-		if (rhs.m_deviceName)
-		{
-			m_deviceName = std::make_unique<std::wstring>(*rhs.m_deviceName);
-		}
-
-		if (rhs.m_gateway)
-		{
-			m_gateway = std::make_unique<NodeAddress>(*rhs.m_gateway);
-		}
-	}
-
-	Node(Node &&rhs)
-		: m_deviceName(std::move(rhs.m_deviceName))
-		, m_gateway(std::move(rhs.m_gateway))
-	{
-	}
-
-	bool hasDeviceName() const
-	{
-		return !!m_deviceName;
-	}
-
-	const std::wstring &deviceName() const
-	{
-		return *m_deviceName;
-	}
-
-	bool hasGateway() const
-	{
-		return !!m_gateway;
-	}
-
-	const NodeAddress &gateway() const
-	{
-		return *m_gateway;
+		return rhs.gateway().has_value()
+			&& EqualAddress(m_gateway.value(), rhs.gateway().value());
 	}
 
 private:
 
-	std::unique_ptr<std::wstring> m_deviceName;
-	std::unique_ptr<NodeAddress> m_gateway;
+	std::optional<std::wstring> m_deviceName;
+	std::optional<NodeAddress> m_gateway;
 };
 
 class Route
 {
 public:
 
-	Route(const Network &network, const Node *node)
+	Route(const Network &network, const std::optional<Node> &node)
 		: m_network(network)
-	{
-		if (nullptr != node)
-		{
-			m_node = std::make_unique<Node>(*node);
-		}
-	}
-
-	Route(const Route &rhs)
-	{
-		m_network = rhs.m_network;
-
-		if (rhs.m_node)
-		{
-			m_node = std::make_unique<Node>(*rhs.m_node);
-		}
-	}
-
-	Route(Route &&rhs)
-		: m_network(std::move(rhs.m_network))
-		, m_node(std::move(rhs.m_node))
+		, m_node(node)
 	{
 	}
 
@@ -117,32 +79,57 @@ public:
 		return m_network;
 	}
 
-	bool hasNode() const
+	const std::optional<Node> &node() const
 	{
-		return !!m_node;
+		return m_node;
 	}
 
-	const Node &node() const
+	bool operator==(const Route &rhs) const
 	{
-		return *m_node;
+		if (m_node.has_value())
+		{
+			return rhs.node().has_value()
+				&& EqualAddress(m_network, rhs.network())
+				&& m_node.value() == rhs.node().value();
+		}
+
+		return false == rhs.node().has_value()
+			&& EqualAddress(m_network, rhs.network());
 	}
 
 private:
 
 	Network m_network;
-	std::unique_ptr<Node> m_node;
+	std::optional<Node> m_node;
 };
 
 class RouteManager
 {
 public:
 
-	RouteManager(const std::vector<Route> &routes);
+	RouteManager() = default;
 	~RouteManager();
+
+	RouteManager(const RouteManager &) = delete;
+	RouteManager &operator=(const RouteManager &) = delete;
+	RouteManager(RouteManager &&) = default;
+
+	void addRoutes(const std::vector<Route> &routes);
+	void addRoute(const Route &route);
+
+	void deleteRoutes(const std::vector<Route> &routes);
+	void deleteRoute(const Route &route);
 
 private:
 
-	std::vector<Route> m_routes;
+	std::list<Route> m_routes;
+
+	std::recursive_mutex m_routesLock;
+
+	// Find a route based on network and mask.
+	std::list<Route>::iterator findRoute(const Route &route);
+
+	// thread handle
 };
 
 }

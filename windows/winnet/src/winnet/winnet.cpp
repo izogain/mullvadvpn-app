@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <stdexcept>
 #include <memory>
+#include <optional>
 
 using namespace routemanager;
 
@@ -56,68 +57,55 @@ Network ConvertNetwork(const WINNET_IPNETWORK &in)
 	return out;
 }
 
-std::unique_ptr<Node> ConvertNode(const WINNET_NODE *in)
+std::optional<Node> ConvertNode(const WINNET_NODE *in)
 {
-	std::unique_ptr<Node> out;
-
 	if (nullptr == in)
 	{
-		return out;
+		return {};
 	}
 
-	if (nullptr == in->gateway && nullptr == in->deviceName)
+	if (nullptr != in->deviceName)
+	{
+		// This node is represented by device name.
+		return Node(in->deviceName);
+	}
+
+	if (nullptr == in->gateway)
 	{
 		throw std::runtime_error("Invalid 'WINNET_NODE' definition");
 	}
 
 	//
-	// Convert WINNET_NODE into Node
+	// This node is represented by gateway.
 	//
 
-	NodeAddress gatewayStorage{ 0 };
-	const NodeAddress *gatewayPointer = nullptr;
+	NodeAddress gateway{ 0 };
 
-	if (nullptr != in->gateway)
+	switch (in->gateway->type)
 	{
-		gatewayPointer = &gatewayStorage;
-
-		switch (in->gateway->type)
+		case WINNET_IP_TYPE::IPV4:
 		{
-			case WINNET_IP_TYPE::IPV4:
-			{
-				gatewayStorage.si_family = AF_INET;
-				gatewayStorage.Ipv4.sin_family = AF_INET;
-				gatewayStorage.Ipv4.sin_addr.s_addr = common::network::LiteralAddressToNetwork(in->gateway->bytes);
+			gateway.si_family = AF_INET;
+			gateway.Ipv4.sin_family = AF_INET;
+			gateway.Ipv4.sin_addr.s_addr = common::network::LiteralAddressToNetwork(in->gateway->bytes);
 
-				break;
-			}
-			case WINNET_IP_TYPE::IPV6:
-			{
-				gatewayStorage.si_family = AF_INET6;
-				gatewayStorage.Ipv6.sin6_family = AF_INET6;
-				memcpy(&gatewayStorage.Ipv6.sin6_addr.u.Byte, in->gateway->bytes, 16);
+			break;
+		}
+		case WINNET_IP_TYPE::IPV6:
+		{
+			gateway.si_family = AF_INET6;
+			gateway.Ipv6.sin6_family = AF_INET6;
+			memcpy(&gateway.Ipv6.sin6_addr.u.Byte, in->gateway->bytes, 16);
 
-				break;
-			}
-			default:
-			{
-				throw std::logic_error("Missing case handler in switch clause");
-			}
+			break;
+		}
+		default:
+		{
+			throw std::logic_error("Invalid gateway type specifier in 'WINNET_NODE' definition");
 		}
 	}
 
-	std::wstring deviceNameStorage;
-	const std::wstring *deviceNamePointer = nullptr;
-
-	if (nullptr != in->deviceName)
-	{
-		deviceNamePointer = &deviceNameStorage;
-		deviceNameStorage = in->deviceName;
-	}
-
-	out = std::make_unique<Node>(deviceNamePointer, gatewayPointer);
-
-	return out;
+	return Node(gateway);
 }
 
 std::vector<Route> ConvertRoutes(const WINNET_ROUTE *routes, uint32_t numRoutes)
@@ -131,7 +119,7 @@ std::vector<Route> ConvertRoutes(const WINNET_ROUTE *routes, uint32_t numRoutes)
 		out.emplace_back(Route
 		{
 			ConvertNetwork(routes[i].network),
-			ConvertNode(routes[i].node).get()
+			ConvertNode(routes[i].node)
 		});
 	}
 
@@ -377,7 +365,8 @@ WinNet_ActivateRouteManager(
 			throw std::runtime_error("Cannot activate route manager twice");
 		}
 
-		g_RouteManager = new RouteManager(ConvertRoutes(routes, numRoutes));
+		g_RouteManager = new RouteManager;
+		g_RouteManager->addRoutes(ConvertRoutes(routes, numRoutes));
 
 		return true;
 	}

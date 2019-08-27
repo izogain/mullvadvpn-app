@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "../../winnet/winnet.h"
+#include "../../winnet/routemanager.h"
 #include <iostream>
 
 void __stdcall ConnectivityChanged(bool connected, void *)
@@ -27,13 +28,54 @@ int main()
 	//	}
 	//};
 
-	bool currentConnectivity = 0;
 
-	const auto status = WinNet_ActivateConnectivityMonitor(ConnectivityChanged, nullptr, &currentConnectivity, nullptr, nullptr);
 
-	std::wcout << L"Current connectivity: "
-		<< (currentConnectivity ? L"Connected" : L"NOT connected") << std::endl;
+	//uint8_t currentConnectivity = 0;
 
+	//const auto status = WinNet_ActivateConnectivityMonitor(ConnectivityChanged, &currentConnectivity, nullptr, nullptr);
+
+	//std::wcout << L"Current connectivity: "
+	//	<< (0 != currentConnectivity ? L"Connected" : L"NOT connected") << std::endl;
+
+
+
+	routemanager::Network network{ 0 };
+
+	//network.PrefixLength = 1;
+	//network.Prefix.si_family = AF_INET;
+	//network.Prefix.Ipv4.sin_family = AF_INET;
+	//network.Prefix.Ipv4.sin_addr.s_net = 0x80;
+
+	//network.PrefixLength = 1;
+	//network.Prefix.si_family = AF_INET;
+	//network.Prefix.Ipv4.sin_family = AF_INET;
+	//network.Prefix.Ipv4.sin_addr.s_net = 0;
+
+//	auto node = routemanager::Node(L"Mullvad");
+//	auto node = routemanager::Node(L"VirtualBox Host-Only Network #2");
+
+
+
+
+	network.PrefixLength = 32;
+	network.Prefix.si_family = AF_INET;
+	network.Prefix.Ipv4.sin_family = AF_INET;
+	network.Prefix.Ipv4.sin_addr.s_addr = 0x439ad5b9;
+
+
+
+
+
+
+
+	std::vector<routemanager::Route> routes;
+
+//	routes.emplace_back(routemanager::Route(network, std::make_optional<>(node)));
+	routes.emplace_back(routemanager::Route(network, std::nullopt));
+
+	auto rm = routemanager::RouteManager(routes);
+
+	std::wcout << L"Paused" << std::endl;
 	_getwch();
 
     return 0;
