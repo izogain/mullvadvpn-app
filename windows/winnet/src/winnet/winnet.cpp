@@ -18,7 +18,9 @@ namespace
 {
 
 NetMonitor *g_NetMonitor = nullptr;
+
 RouteManager *g_RouteManager = nullptr;
+std::shared_ptr<LogSink> g_RouteManagerLogSink;
 
 Network ConvertNetwork(const WINNET_IPNETWORK &in)
 {
@@ -64,48 +66,49 @@ std::optional<Node> ConvertNode(const WINNET_NODE *in)
 		return {};
 	}
 
-	if (nullptr != in->deviceName)
-	{
-		// This node is represented by device name.
-		return Node(in->deviceName);
-	}
-
-	if (nullptr == in->gateway)
+	if (nullptr == in->deviceName && nullptr == in->gateway)
 	{
 		throw std::runtime_error("Invalid 'WINNET_NODE' definition");
 	}
 
-	//
-	// This node is represented by gateway.
-	//
+	std::optional<std::wstring> deviceName;
+	std::optional<NodeAddress> gateway;
 
-	NodeAddress gateway{ 0 };
-
-	switch (in->gateway->type)
+	if (nullptr != in->deviceName)
 	{
-		case WINNET_IP_TYPE::IPV4:
-		{
-			gateway.si_family = AF_INET;
-			gateway.Ipv4.sin_family = AF_INET;
-			gateway.Ipv4.sin_addr.s_addr = common::network::LiteralAddressToNetwork(in->gateway->bytes);
-
-			break;
-		}
-		case WINNET_IP_TYPE::IPV6:
-		{
-			gateway.si_family = AF_INET6;
-			gateway.Ipv6.sin6_family = AF_INET6;
-			memcpy(&gateway.Ipv6.sin6_addr.u.Byte, in->gateway->bytes, 16);
-
-			break;
-		}
-		default:
-		{
-			throw std::logic_error("Invalid gateway type specifier in 'WINNET_NODE' definition");
-		}
+		deviceName = in->deviceName;
 	}
 
-	return Node(gateway);
+	if (nullptr != in->gateway)
+	{
+		NodeAddress gw { 0 };
+
+		switch (in->gateway->type)
+		{
+			case WINNET_IP_TYPE::IPV4:
+			{
+				gw.si_family = AF_INET;
+				gw.Ipv4.sin_addr.s_addr = common::network::LiteralAddressToNetwork(in->gateway->bytes);
+
+				break;
+			}
+			case WINNET_IP_TYPE::IPV6:
+			{
+				gw.si_family = AF_INET6;
+				memcpy(&gw.Ipv6.sin6_addr.u.Byte, in->gateway->bytes, 16);
+
+				break;
+			}
+			default:
+			{
+				throw std::logic_error("Invalid gateway type specifier in 'WINNET_NODE' definition");
+			}
+		}
+
+		gateway = gw;
+	}
+
+	return Node(deviceName, gateway);
 }
 
 std::vector<Route> ConvertRoutes(const WINNET_ROUTE *routes, uint32_t numRoutes)
@@ -352,8 +355,6 @@ WINNET_LINKAGE
 bool
 WINNET_API
 WinNet_ActivateRouteManager(
-	const WINNET_ROUTE *routes,
-	uint32_t numRoutes,
 	MullvadLogSink logSink,
 	void *logSinkContext
 )
@@ -365,14 +366,140 @@ WinNet_ActivateRouteManager(
 			throw std::runtime_error("Cannot activate route manager twice");
 		}
 
-		g_RouteManager = new RouteManager;
-		g_RouteManager->addRoutes(ConvertRoutes(routes, numRoutes));
+		g_RouteManagerLogSink = std::make_shared<LogSink>(logSink, logSinkContext);
+		g_RouteManager = new RouteManager(g_RouteManagerLogSink);
 
 		return true;
 	}
 	catch (const std::exception &err)
 	{
 		UnwindAndLog(logSink, logSinkContext, err);
+		return false;
+	}
+	catch (...)
+	{
+		return false;
+	}
+}
+
+extern "C"
+WINNET_LINKAGE
+bool
+WINNET_API
+WinNet_AddRoutes(
+	const WINNET_ROUTE *routes,
+	uint32_t numRoutes
+)
+{
+	if (nullptr == g_RouteManager)
+	{
+		return false;
+	}
+
+	try
+	{
+		g_RouteManager->addRoutes(ConvertRoutes(routes, numRoutes));
+		return true;
+	}
+	catch (const std::exception &err)
+	{
+		common::error::UnwindException(err, g_RouteManagerLogSink);
+		return false;
+	}
+	catch (...)
+	{
+		return false;
+	}
+}
+
+extern "C"
+WINNET_LINKAGE
+bool
+WINNET_API
+WinNet_AddRoute(
+	const WINNET_ROUTE *route
+)
+{
+	if (nullptr == g_RouteManager)
+	{
+		return false;
+	}
+
+	try
+	{
+		g_RouteManager->addRoute
+		(
+			Route{ ConvertNetwork(route->network), ConvertNode(route->node) }
+		);
+
+		return true;
+	}
+	catch (const std::exception &err)
+	{
+		common::error::UnwindException(err, g_RouteManagerLogSink);
+		return false;
+	}
+	catch (...)
+	{
+		return false;
+	}
+}
+
+extern "C"
+WINNET_LINKAGE
+bool
+WINNET_API
+WinNet_DeleteRoutes(
+	const WINNET_ROUTE *routes,
+	uint32_t numRoutes
+)
+{
+	if (nullptr == g_RouteManager)
+	{
+		return false;
+	}
+
+	try
+	{
+		g_RouteManager->deleteRoutes(ConvertRoutes(routes, numRoutes));
+		return true;
+	}
+	catch (const std::exception &err)
+	{
+		common::error::UnwindException(err, g_RouteManagerLogSink);
+		return false;
+	}
+	catch (...)
+	{
+		return false;
+	}
+}
+
+extern "C"
+WINNET_LINKAGE
+bool
+WINNET_API
+WinNet_DeleteRoute(
+	const WINNET_ROUTE *route
+)
+{
+	if (nullptr == g_RouteManager)
+	{
+		return false;
+	}
+
+	try
+	{
+		g_RouteManager->deleteRoute
+		(
+			Route{ ConvertNetwork(route->network), ConvertNode(route->node) }
+		);
+
+		return true;
+	}
+	catch (const std::exception &err)
+	{
+		common::error::UnwindException(err, g_RouteManagerLogSink);
 		return false;
 	}
 	catch (...)

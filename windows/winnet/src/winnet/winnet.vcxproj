@@ -33,6 +33,7 @@
     <ClInclude Include="adapters.h" />
     <ClInclude Include="InterfacePair.h" />
     <ClInclude Include="interfaceutils.h" />
+    <ClInclude Include="logsink.h" />
     <ClInclude Include="netmonitor.h" />
     <ClInclude Include="NetworkInterfaces.h" />
     <ClInclude Include="routemanager.h" />

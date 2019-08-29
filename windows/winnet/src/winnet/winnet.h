@@ -147,10 +147,42 @@ WINNET_LINKAGE
 bool
 WINNET_API
 WinNet_ActivateRouteManager(
+	WinNetLogSink logSink,
+	void *logSinkContext
+);
+
+extern "C"
+WINNET_LINKAGE
+bool
+WINNET_API
+WinNet_AddRoutes(
 	const WINNET_ROUTE *routes,
-	uint32_t numRoutes,
-	WinNetErrorSink errorSink,
-	void *errorSinkContext
+	uint32_t numRoutes
+);
+
+extern "C"
+WINNET_LINKAGE
+bool
+WINNET_API
+WinNet_AddRoute(
+	const WINNET_ROUTE *route
+);
+
+extern "C"
+WINNET_LINKAGE
+bool
+WINNET_API
+WinNet_DeleteRoutes(
+	const WINNET_ROUTE *routes,
+	uint32_t numRoutes
+);
+
+extern "C"
+WINNET_LINKAGE
+bool
+WINNET_API
+WinNet_DeleteRoute(
+	const WINNET_ROUTE *route
 );
 
 extern "C"

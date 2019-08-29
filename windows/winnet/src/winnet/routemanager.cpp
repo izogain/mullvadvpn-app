@@ -83,7 +83,13 @@ bool RouteHasGateway(const MIB_IPFORWARD_ROW2 &route)
 	};
 }
 
-NET_LUID InterfaceLuidFromDefaultRoute(ADDRESS_FAMILY family)
+struct InterfaceAndGateway
+{
+	NET_LUID iface;
+	routemanager::NodeAddress gateway;
+};
+
+InterfaceAndGateway ResolveNodeFromDefaultRoute(ADDRESS_FAMILY family)
 {
 	PMIB_IPFORWARD_TABLE2 table;
 
@@ -146,7 +152,7 @@ NET_LUID InterfaceLuidFromDefaultRoute(ADDRESS_FAMILY family)
 		throw std::runtime_error("Unable to identify active default route");
 	}
 
-	return annotated[0].route->InterfaceLuid;
+	return InterfaceAndGateway { annotated[0].route->InterfaceLuid, annotated[0].route->NextHop };
 }
 
 bool AdapterInterfaceEnabled(const IP_ADAPTER_ADDRESSES *adapter, ADDRESS_FAMILY family)
@@ -279,11 +285,20 @@ NET_LUID InterfaceLuidFromGateway(const routemanager::NodeAddress &gateway)
 	return matches[0]->Luid;
 }
 
-NET_LUID InterfaceLuidFromNode(ADDRESS_FAMILY family, const std::optional<routemanager::Node> &optionalNode)
+InterfaceAndGateway ResolveNode(ADDRESS_FAMILY family, const std::optional<routemanager::Node> &optionalNode)
 {
+	//
+	// There are four cases:
+	//
+	// Unspecified node (use interface and gateway of default route).
+	// Node is specified by name.
+	// Node is specified by name and gateway.
+	// Node is specified by gateway.
+	//
+
 	if (false == optionalNode.has_value())
 	{
-		return InterfaceLuidFromDefaultRoute(family);
+		return ResolveNodeFromDefaultRoute(family);
 	}
 
 	const auto &node = optionalNode.value();
@@ -300,12 +315,22 @@ NET_LUID InterfaceLuidFromNode(ADDRESS_FAMILY family, const std::optional<routem
 			throw std::runtime_error(err);
 		}
 
-		return luid;
+		auto onLinkProvider = [&family]()
+		{
+			routemanager::NodeAddress onLink = { 0 };
+			onLink.si_family = family;
+
+			return onLink;
+		};
+
+		return InterfaceAndGateway{ luid, node.gateway().value_or(onLinkProvider()) };
 	}
-	else
-	{
-		return InterfaceLuidFromGateway(node.gateway().value());
-	}
+
+	//
+	// The node is specified only by gateway.
+	//
+
+	return InterfaceAndGateway{ InterfaceLuidFromGateway(node.gateway().value()), node.gateway().value() };
 }
 
 routemanager::NodeAddress ConvertSocketAddress(const SOCKET_ADDRESS *sa)
@@ -337,76 +362,23 @@ routemanager::NodeAddress ConvertSocketAddress(const SOCKET_ADDRESS *sa)
 	return out;
 }
 
-routemanager::NodeAddress InterfacePrimaryGateway(NET_LUID iface, ADDRESS_FAMILY family)
+std::wstring FormatNetwork(const routemanager::Network &network)
 {
-	const DWORD adapterFlags = GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER
-		| GAA_FLAG_SKIP_FRIENDLY_NAME | GAA_FLAG_INCLUDE_GATEWAYS;
-
-	Adapters adapters(family, adapterFlags);
-
-	for (auto adapter = adapters.next(); nullptr != adapter; adapter = adapters.next())
+	switch (network.Prefix.si_family)
 	{
-		if (adapter->Luid.Value != iface.Value)
+		case AF_INET:
 		{
-			continue;
+			return common::string::FormatIpv4(network.Prefix.Ipv4.sin_addr.s_addr, network.PrefixLength);
 		}
-
-		auto gateways = IsolateGatewayAddresses(adapter->FirstGatewayAddress, family);
-
-		if (gateways.empty())
+		case AF_INET6:
 		{
-			std::stringstream ss;
-
-			ss << "Adapter with LUID 0x" << std::hex << iface.Value << " does not appear to have any "
-				<< "gateways configured for " << (AF_INET == family ? "IPv4" : "IPv6");
-
-			throw std::runtime_error(ss.str());
+			return common::string::FormatIpv6(network.Prefix.Ipv6.sin6_addr.u.Byte, network.PrefixLength);
 		}
-
-		return ConvertSocketAddress(gateways[0]);
+		default:
+		{
+			return L"Failed to format network details";
+		}
 	}
-
-	throw std::runtime_error("Could not find interface with matching LUID");
-}
-
-routemanager::NodeAddress SelectRouteGateway(const routemanager::Route &route, NET_LUID iface)
-{
-	//
-	// We've already selected the interface to use.
-	// If it was selected based on a gateway in the route spec, we return that gateway.
-	//
-
-	if (route.node().has_value()
-		&& route.node().value().gateway().has_value())
-	{
-		return route.node().value().gateway().value();
-	}
-
-	return InterfacePrimaryGateway(iface, route.network().Prefix.si_family);
-}
-
-void AddRoute(const routemanager::Route &route)
-{
-	const auto iface = InterfaceLuidFromNode(route.network().Prefix.si_family, route.node());
-	const auto nextHop = SelectRouteGateway(route, iface);
-
-	MIB_IPFORWARD_ROW2 spec;
-
-	InitializeIpForwardEntry(&spec);
-
-	spec.InterfaceLuid = iface;
-	spec.DestinationPrefix = route.network();
-	spec.NextHop = nextHop;
-	spec.Metric = 0;
-	spec.Protocol = MIB_IPPROTO_NETMGMT;
-	spec.Origin = NlroManual;
-
-	//
-	// Do not treat ERROR_OBJECT_ALREADY_EXISTS as being successful.
-	// Because it may not take route metric into consideration.
-	//
-
-	THROW_UNLESS(NO_ERROR, CreateIpForwardEntry2(&spec), "Add route entry");
 }
 
 } // anon namespace
@@ -442,56 +414,71 @@ bool EqualAddress(const NodeAddress &lhs, const NodeAddress &rhs)
 		}
 		default:
 		{
-			throw std::runtime_error("Invalid network address");
+			throw std::runtime_error("Invalid address family for network address");
 		}
 	}
 }
 
+RouteManager::RouteManager(std::shared_ptr<LogSink> logSink)
+	: m_logSink(logSink)
+{
+	const auto status = NotifyRouteChange2(AF_UNSPEC, RouteChangeCallback, this, FALSE, &m_notificationHandle);
+
+	THROW_UNLESS(NO_ERROR, status, "Register for route table change notifications");
+}
+
 RouteManager::~RouteManager()
 {
-	// TODO: signal monitoring thread to shut down
+	CancelMibChangeNotify2(m_notificationHandle);
 
-	std::vector<Route> routes;
-
-	std::copy(m_routes.begin(), m_routes.end(), std::back_inserter(routes));
-
-	try
+	for (const auto &record : m_routes)
 	{
-		deleteRoutes(routes);
-	}
-	catch (std::exception &ex)
-	{
-		// TODO: log
+		try
+		{
+			deleteFromRoutingTable(record.registeredRoute);
+		}
+		catch (std::exception &ex)
+		{
+			std::wstringstream ss;
+
+			ss << L"Failed to delete route as part of cleaning up, Route: "
+				<< FormatRegisteredRoute(record.registeredRoute);
+
+			m_logSink->error(common::string::ToAnsi(ss.str()).c_str());
+			m_logSink->error(ex.what());
+		}
 	}
 }
 
 void RouteManager::addRoutes(const std::vector<Route> &routes)
 {
-	// Taking the lock is not strictly necessary but makes this method atomic.
 	LockType lock(m_routesLock);
 
-	std::vector<Route> added;
-	added.reserve(routes.size());
+	std::vector<EventEntry> eventLog;
 
 	for (const auto &route : routes)
 	{
 		try
 		{
-			addRoute(route);
-			added.emplace_back(route);
-		}
-		catch (std::exception &ex)
-		{
-			try
+			auto existing = findRoute(route);
+
+			if (existing != m_routes.end())
 			{
-				deleteRoutes(added);
-			}
-			catch (std::exception &ex)
-			{
-				// TODO: log
+				deleteFromRoutingTable(existing->registeredRoute);
+				eventLog.emplace_back(EventEntry{ EventType::DELETE_ROUTE, *existing });
+				m_routes.erase(existing);
 			}
 
-			throw;
+			const RouteRecord newRecord { route, addIntoRoutingTable(route) };
+
+			eventLog.emplace_back(EventEntry{ EventType::ADD_ROUTE, newRecord });
+			m_routes.emplace_back(std::move(newRecord));
+		}
+		catch (std::exception &)
+		{
+			undoEvents(eventLog);
+
+			std::throw_with_nested(std::runtime_error("Failed during batch insertion of routes"));
 		}
 	}
 }
@@ -500,38 +487,306 @@ void RouteManager::addRoute(const Route &route)
 {
 	LockType lock(m_routesLock);
 
+	std::optional<RouteRecord> deletedRecord;
+
 	auto existing = findRoute(route);
 
 	if (existing != m_routes.end())
 	{
-		deleteRoute(*existing);
+		try
+		{
+			deleteFromRoutingTable(existing->registeredRoute);
+		}
+		catch (std::exception &)
+		{
+			std::throw_with_nested(std::runtime_error("Failed to evict old route when adding new route"));
+		}
+
+		deletedRecord = *existing;
 		m_routes.erase(existing);
 	}
 
-	AddRoute(route);
-	m_routes.emplace_back(route);
+	try
+	{
+		m_routes.emplace_back
+		(
+			RouteRecord{ route, addIntoRoutingTable(route) }
+		);
+	}
+	catch (std::exception &)
+	{
+		//
+		// Restore deleted record.
+		//
+
+		if (deletedRecord.has_value())
+		{
+			auto &r = deletedRecord.value();
+
+			try
+			{
+				restoreIntoRoutingTable(r.registeredRoute);
+				m_routes.emplace_back(r);
+			}
+			catch (std::exception &ex)
+			{
+				const auto err = std::string("Failed to restore evicted route during rollback: ").append(ex.what());
+				m_logSink->error(err.c_str());
+			}
+		}
+
+		//
+		// Just rethrow because the error is from addIntoRoutingTable().
+		//
+
+		throw;
+	}
 }
 
 void RouteManager::deleteRoutes(const std::vector<Route> &routes)
 {
-	// TODO: do we need locking?
 	LockType lock(m_routesLock);
+
+	std::vector<EventEntry> eventLog;
+
+	for (const auto &route : routes)
+	{
+		try
+		{
+			auto officialRecord = findRoute(route);
+
+			if (m_routes.end() == officialRecord)
+			{
+				const auto err = std::wstring(L"Request to delete previously unregistered route: ")
+					.append(FormatNetwork(route.network()));
+
+				m_logSink->warning(common::string::ToAnsi(err).c_str());
+
+				continue;
+			}
+
+			deleteFromRoutingTable(officialRecord->registeredRoute);
+			eventLog.emplace_back(EventEntry{ EventType::DELETE_ROUTE, *officialRecord });
+			m_routes.erase(officialRecord);
+		}
+		catch (std::exception &)
+		{
+			undoEvents(eventLog);
+
+			std::throw_with_nested(std::runtime_error("Failed during batch removal of routes"));
+		}
+	}
 }
 
 void RouteManager::deleteRoute(const Route &route)
 {
 	LockType lock(m_routesLock);
 
-	DeleteIpForwardEntry2()
+	auto officialRecord = findRoute(route);
 
+	if (m_routes.end() == officialRecord)
+	{
+		const auto err = std::wstring(L"Request to delete previously unregistered route: ")
+			.append(FormatNetwork(route.network()));
+
+		m_logSink->warning(common::string::ToAnsi(err).c_str());
+
+		return;
+	}
+
+	deleteFromRoutingTable(officialRecord->registeredRoute);
+	m_routes.erase(officialRecord);
 }
 
-std::list<Route>::iterator RouteManager::findRoute(const Route &route)
+std::list<RouteManager::RouteRecord>::iterator RouteManager::findRoute(const Route &route)
 {
 	return std::find_if(m_routes.begin(), m_routes.end(), [&route](const auto &candidate)
 	{
-		return EqualAddress(route.network(), candidate.network());
+		return EqualAddress(route.network(), candidate.route.network());
 	});
+}
+
+//std::list<RouteManager::RouteRecord>::iterator RouteManager::findRoute(const Network &network)
+//{
+//	return std::find_if(m_routes.begin(), m_routes.end(), [&network](const auto &candidate)
+//	{
+//		return EqualAddress(network, candidate.route.network());
+//	});
+//}
+
+RouteManager::RegisteredRoute RouteManager::addIntoRoutingTable(const Route &route)
+{
+	const auto node = ResolveNode(route.network().Prefix.si_family, route.node());
+
+	MIB_IPFORWARD_ROW2 spec;
+
+	InitializeIpForwardEntry(&spec);
+
+	spec.InterfaceLuid = node.iface;
+	spec.DestinationPrefix = route.network();
+	spec.NextHop = node.gateway;
+	spec.Metric = 0;
+	spec.Protocol = MIB_IPPROTO_NETMGMT;
+	spec.Origin = NlroManual;
+
+	//
+	// Do not treat ERROR_OBJECT_ALREADY_EXISTS as being successful.
+	// Because it may not take route metric into consideration.
+	//
+
+	THROW_UNLESS(NO_ERROR, CreateIpForwardEntry2(&spec), "Register route in routing table");
+
+	return RegisteredRoute { route.network(), node.iface, node.gateway };
+}
+
+void RouteManager::restoreIntoRoutingTable(const RegisteredRoute &route)
+{
+	MIB_IPFORWARD_ROW2 spec;
+
+	InitializeIpForwardEntry(&spec);
+
+	spec.InterfaceLuid = route.luid;
+	spec.DestinationPrefix = route.network;
+	spec.NextHop = route.nextHop;
+	spec.Metric = 0;
+	spec.Protocol = MIB_IPPROTO_NETMGMT;
+	spec.Origin = NlroManual;
+
+	THROW_UNLESS(NO_ERROR, CreateIpForwardEntry2(&spec), "Register route in routing table");
+}
+
+void RouteManager::deleteFromRoutingTable(const RegisteredRoute &route)
+{
+	MIB_IPFORWARD_ROW2 r = { 0};
+
+	r.InterfaceLuid = route.luid;
+	r.DestinationPrefix = route.network;
+	r.NextHop = route.nextHop;
+
+	auto status = DeleteIpForwardEntry2(&r);
+
+	if (ERROR_NOT_FOUND == status)
+	{
+		status = NO_ERROR;
+
+		const auto err = std::wstring(L"Attempting to delete route which was not present in routing table, " \
+			"ignoring and proceeding. Route: ").append(FormatRegisteredRoute(route));
+
+		m_logSink->warning(common::string::ToAnsi(err).c_str());
+	}
+
+	THROW_UNLESS(NO_ERROR, status, "Delete route in routing table");
+}
+
+void RouteManager::undoEvents(const std::vector<EventEntry> &eventLog)
+{
+	//
+	// Rewind state by processing events in the reverse order.
+	//
+
+	for (auto it = eventLog.rbegin(); it != eventLog.rend(); ++it)
+	{
+		try
+		{
+			switch (it->type)
+			{
+				case EventType::ADD_ROUTE:
+				{
+					auto officialRecord = findRoute(it->record.route);
+
+					if (m_routes.end() == officialRecord)
+					{
+						throw std::runtime_error("Internal state inconsistency in route manager");
+					}
+
+					deleteFromRoutingTable(it->record.registeredRoute);
+					m_routes.erase(officialRecord);
+
+					break;
+				}
+				case EventType::DELETE_ROUTE:
+				{
+					restoreIntoRoutingTable(it->record.registeredRoute);
+					m_routes.emplace_back(it->record);
+
+					break;
+				}
+				default:
+				{
+					throw std::logic_error("Missing case handler in switch clause");
+				}
+			}
+
+		}
+		catch (std::exception &ex)
+		{
+			const auto err = std::string("Attempting to rollback state: ").append(ex.what());
+			m_logSink->error(err.c_str());
+		}
+	}
+}
+
+//static
+void NETIOAPI_API_
+RouteManager::RouteChangeCallback(void *context, MIB_IPFORWARD_ROW2 *row, MIB_NOTIFICATION_TYPE notificationType)
+{
+	// own route is deleted - add back
+	// own route is updated - remove and add back
+	// default route is added - ?
+	// default route is updated - ?
+	//
+	// recall that we see the route as it existed before the most recent change
+
+
+
+
+	//auto owner = reinterpret_cast<RouteManager *>(context);
+
+	//LockType lock(owner->m_routesLock);
+
+	//row->DestinationPrefix.
+}
+
+// static
+std::wstring RouteManager::FormatRegisteredRoute(const RegisteredRoute &route)
+{
+	std::wstringstream ss;
+
+	if (AF_INET == route.network.Prefix.si_family)
+	{
+		std::wstring gateway(L"\"On-link\"");
+
+		if (0 != route.nextHop.Ipv4.sin_addr.s_addr)
+		{
+			gateway = common::string::FormatIpv4(route.nextHop.Ipv4.sin_addr.s_addr);
+		}
+
+		ss << common::string::FormatIpv4(route.network.Prefix.Ipv4.sin_addr.s_addr, route.network.PrefixLength)
+			<< L" with gateway " << gateway
+			<< L" on interface with LUID 0x" << std::hex << route.luid.Value;
+	}
+	else if (AF_INET6 == route.network.Prefix.si_family)
+	{
+		std::wstring gateway(L"\"On-link\"");
+
+		const uint8_t *begin = &route.nextHop.Ipv6.sin6_addr.u.Byte[0];
+		const uint8_t *end = begin + 16;
+
+		if (0 != std::accumulate(begin, end, 0))
+		{
+			gateway = common::string::FormatIpv6(route.nextHop.Ipv6.sin6_addr.u.Byte);
+		}
+
+		ss << common::string::FormatIpv6(route.network.Prefix.Ipv6.sin6_addr.u.Byte, route.network.PrefixLength)
+			<< L" with gateway " << gateway
+			<< L" on interface with LUID 0x" << std::hex << route.luid.Value;
+	}
+	else
+	{
+		ss << L"Failed to format route details";
+	}
+
+	return ss.str();
 }
 
 }

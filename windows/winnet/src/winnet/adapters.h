@@ -32,6 +32,9 @@ public:
 
 	void reset() const
 	{
-		m_currentEntry = reinterpret_cast<const IP_ADAPTER_ADDRESSES *>(&m_buffer[0]);
+		if (false == m_buffer.empty())
+		{
+			m_currentEntry = reinterpret_cast<const IP_ADAPTER_ADDRESSES *>(&m_buffer[0]);
+		}
 	}
 };

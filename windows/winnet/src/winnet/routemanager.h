@@ -1,5 +1,6 @@
 #pragma once
 
+#include "logsink.h"
 #include <string>
 #include <memory>
 #include <vector>
@@ -26,14 +27,14 @@ class Node
 {
 public:
 
-	Node(const std::wstring &deviceName)
+	Node(const std::optional<std::wstring> &deviceName, const std::optional<NodeAddress> &gateway)
 		: m_deviceName(deviceName)
+		, m_gateway(gateway)
 	{
-	}
-
-	Node(const NodeAddress &gateway)
-		: m_gateway(gateway)
-	{
+		if (false == m_deviceName.has_value() && false == m_gateway.has_value())
+		{
+			throw std::runtime_error("Invalid node definition");
+		}
 	}
 
 	const std::optional<std::wstring> &deviceName() const
@@ -50,12 +51,23 @@ public:
 	{
 		if (m_deviceName.has_value())
 		{
-			return rhs.deviceName().has_value()
-				&& 0 == _wcsicmp(m_deviceName.value().c_str(), rhs.deviceName().value().c_str());
+			if (false == rhs.m_deviceName.has_value()
+				|| 0 != _wcsicmp(m_deviceName.value().c_str(), rhs.deviceName().value().c_str()))
+			{
+				return false;
+			}
 		}
 
-		return rhs.gateway().has_value()
-			&& EqualAddress(m_gateway.value(), rhs.gateway().value());
+		if (m_gateway.has_value())
+		{
+			if (false == rhs.m_gateway.has_value()
+				|| false == EqualAddress(m_gateway.value(), rhs.gateway().value()))
+			{
+				return false;
+			}
+		}
+
+		return true;
 	}
 
 private:
@@ -107,7 +119,7 @@ class RouteManager
 {
 public:
 
-	RouteManager() = default;
+	RouteManager(std::shared_ptr<LogSink> logSink);
 	~RouteManager();
 
 	RouteManager(const RouteManager &) = delete;
@@ -122,14 +134,56 @@ public:
 
 private:
 
-	std::list<Route> m_routes;
+	std::shared_ptr<LogSink> m_logSink;
+
+	// These are the exact details derived from the route specification (`Route`).
+	// They are used when registering and deleting a route in the system.
+	struct RegisteredRoute
+	{
+		Network network;
+		NET_LUID luid;
+		NodeAddress nextHop;
+	};
+
+	struct RouteRecord
+	{
+		Route route;
+		RegisteredRoute registeredRoute;
+	};
+
+	std::list<RouteRecord> m_routes;
 
 	std::recursive_mutex m_routesLock;
 
-	// Find a route based on network and mask.
-	std::list<Route>::iterator findRoute(const Route &route);
+	// Find a route record based on address and mask.
+	std::list<RouteRecord>::iterator findRoute(const Route &route);
 
-	// thread handle
+	// Same as above but more explicit.
+//	std::list<RouteRecord>::iterator findRoute(const Network &network);
+
+	RegisteredRoute addIntoRoutingTable(const Route &route);
+	void restoreIntoRoutingTable(const RegisteredRoute &route);
+	void deleteFromRoutingTable(const RegisteredRoute &route);
+
+	enum class EventType
+	{
+		ADD_ROUTE,
+		DELETE_ROUTE,
+	};
+
+	struct EventEntry
+	{
+		EventType type;
+		RouteRecord record;
+	};
+
+	void undoEvents(const std::vector<EventEntry> &eventLog);
+
+	HANDLE m_notificationHandle;
+
+	static void NETIOAPI_API_ RouteChangeCallback(void *context, MIB_IPFORWARD_ROW2 *row, MIB_NOTIFICATION_TYPE notificationType);
+
+	static std::wstring FormatRegisteredRoute(const RegisteredRoute &route);
 };
 
 }
