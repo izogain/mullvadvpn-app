@@ -1,6 +1,5 @@
 #pragma once
 
-#include "logsink.h"
 #include <string>
 #include <memory>
 #include <vector>
@@ -14,6 +13,12 @@
 #include <ws2ipdef.h>
 #include <iphlpapi.h>
 #include <netioapi.h>
+
+// Custom header files below here.
+// So broken networking headers don't get confused and break the compilation.
+// ===
+#include "libcommon/string.h"
+#include "logsink.h"
 
 namespace routemanager {
 
@@ -34,6 +39,18 @@ public:
 		if (false == m_deviceName.has_value() && false == m_gateway.has_value())
 		{
 			throw std::runtime_error("Invalid node definition");
+		}
+
+		if (m_deviceName.has_value())
+		{
+			const auto trimmed = common::string::Trim<>(m_deviceName.value());
+
+			if (trimmed.empty())
+			{
+				throw std::runtime_error("Invalid device name in node definition");
+			}
+
+			m_deviceName = std::move(trimmed);
 		}
 	}
 

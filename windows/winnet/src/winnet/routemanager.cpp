@@ -305,11 +305,39 @@ InterfaceAndGateway ResolveNode(ADDRESS_FAMILY family, const std::optional<route
 
 	if (node.deviceName().has_value())
 	{
+		const auto &deviceName = node.deviceName().value();
 		NET_LUID luid;
 
-		if (0 != ConvertInterfaceAliasToLuid(node.deviceName().value().c_str(), &luid))
+		//
+		// Try to parse a string encoded LUID.
+		// The `#` is a valid character in adapter names so we use `?` instead.
+		// The LUID is thus prefixed with `?` and hex encoded and left-padded with zeroes
+		// E.g. `?deadbeefcafebabe` or `?000dbeefcafebabe`
+		//
+
+		static const size_t StringEncodedLuidLength = 17;
+
+		if (StringEncodedLuidLength == deviceName.size()
+			 && L'?' == deviceName[0])
 		{
-			const auto ansiName = common::string::ToAnsi(node.deviceName().value());
+			try
+			{
+				std::wstringstream ss;
+
+				ss << std::hex << &deviceName[1];
+				ss >> luid.Value;
+			}
+			catch (std::exception &)
+			{
+				const auto ansiName = common::string::ToAnsi(deviceName);
+				const auto err = std::string("Failed to parse string encoded LUID: ").append(ansiName);
+
+				std::throw_with_nested(std::runtime_error(err));
+			}
+		}
+		else if (0 != ConvertInterfaceAliasToLuid(deviceName.c_str(), &luid))
+		{
+			const auto ansiName = common::string::ToAnsi(deviceName);
 			const auto err = std::string("Unable to derive interface LUID from interface alias: ").append(ansiName);
 
 			throw std::runtime_error(err);
@@ -730,6 +758,10 @@ void RouteManager::undoEvents(const std::vector<EventEntry> &eventLog)
 void NETIOAPI_API_
 RouteManager::RouteChangeCallback(void *context, MIB_IPFORWARD_ROW2 *row, MIB_NOTIFICATION_TYPE notificationType)
 {
+	UNREFERENCED_PARAMETER(context);
+	UNREFERENCED_PARAMETER(row);
+	UNREFERENCED_PARAMETER(notificationType);
+
 	// own route is deleted - add back
 	// own route is updated - remove and add back
 	// default route is added - ?
