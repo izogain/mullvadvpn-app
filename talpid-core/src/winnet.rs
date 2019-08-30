@@ -5,7 +5,11 @@ pub use self::api::{
 use crate::routing::Node;
 use ipnetwork::IpNetwork;
 use libc::{c_char, c_void, wchar_t};
-use std::{ffi::OsString, net::IpAddr, ptr};
+use std::{
+    ffi::{CStr, OsString},
+    net::IpAddr,
+    ptr,
+};
 use widestring::WideCString;
 
 /// Errors that this module may produce.
@@ -43,7 +47,6 @@ pub enum LogSeverity {
 
 /// Logging callback used with `winnet.dll`.
 pub extern "system" fn log_sink(severity: LogSeverity, msg: *const c_char, _ctx: *mut c_void) {
-    use std::ffi::CStr;
     if msg.is_null() {
         log::error!("Log message from FFI boundary is NULL");
     } else {
@@ -159,9 +162,13 @@ pub struct WinNetIpNetwork {
 
 impl From<IpNetwork> for WinNetIpNetwork {
     fn from(network: IpNetwork) -> WinNetIpNetwork {
-        let WinNetIp{ip_type, ip_bytes} = WinNetIp::from(network.ip());
+        let WinNetIp { ip_type, ip_bytes } = WinNetIp::from(network.ip());
         let prefix = network.prefix();
-        WinNetIpNetwork { ip_type, ip_bytes, prefix }
+        WinNetIpNetwork {
+            ip_type,
+            ip_bytes,
+            prefix,
+        }
     }
 }
 
@@ -293,7 +300,14 @@ impl Drop for WinNetRoute {
 pub fn actiavte_routing_manager(routes: &[WinNetRoute]) -> bool {
     let ptr = routes.as_ptr();
     let length: u32 = routes.len() as u32;
-    unsafe { WinNet_ActivateRouteManager(ptr, length, Some(error_sink), ptr::null_mut()) }
+    unsafe { WinNet_ActivateRouteManager(Some(log_sink), ptr::null_mut()) };
+    unsafe { WinNet_AddRoutes(ptr, length) }
+}
+
+pub fn routing_manager_add_routes(routes: &[WinNetRoute]) -> bool {
+    let ptr = routes.as_ptr();
+    let length: u32 = routes.len() as u32;
+    unsafe { WinNet_AddRoutes(ptr, length) }
 }
 
 pub fn deactivate_routing_manager() -> bool {
@@ -309,16 +323,28 @@ mod api {
     pub type LogSink =
         extern "system" fn(severity: LogSeverity, msg: *const c_char, ctx: *mut c_void);
 
+    /// Error callback type for use with `winnet.dll`.
+    /// TODO: Can we remove this definition yet?!
+    pub type ErrorSink = extern "system" fn(msg: *const c_char, ctx: *mut c_void);
+
     pub type ConnectivityCallback = unsafe extern "system" fn(is_connected: bool, ctx: *mut c_void);
 
     extern "system" {
         #[link_name = "WinNet_ActivateRouteManager"]
         pub fn WinNet_ActivateRouteManager(
-            routes: *const super::WinNetRoute,
-            num_routes: u32,
-            sink: Option<ErrorSink>,
+            sink: Option<LogSink>,
             sink_context: *mut c_void,
-        ) -> bool;
+        );
+
+        #[link_name = "WinNet_AddRoutes"]
+        pub fn WinNet_AddRoutes(routes: *const super::WinNetRoute, num_routes: u32) -> bool;
+
+
+        #[link_name = "WinNet_DeactivateRouteManager"]
+        pub fn WinNet_DeleteRoutes(routes: *const super::WinNetRoute, num_routes: u32) -> bool;
+
+        #[link_name = "WinNet_DeactivateRouteManager"]
+        pub fn WinNet_DeleteRoute(routes: *const super::WinNetRoute) -> bool;
 
         #[link_name = "WinNet_DeactivateRouteManager"]
         pub fn WinNet_DeactivateRouteManager() -> bool;
