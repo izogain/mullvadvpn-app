@@ -340,10 +340,10 @@ mod api {
         pub fn WinNet_AddRoutes(routes: *const super::WinNetRoute, num_routes: u32) -> bool;
 
 
-        #[link_name = "WinNet_DeactivateRouteManager"]
+        #[link_name = "WinNet_DeleteRoutes"]
         pub fn WinNet_DeleteRoutes(routes: *const super::WinNetRoute, num_routes: u32) -> bool;
 
-        #[link_name = "WinNet_DeactivateRouteManager"]
+        #[link_name = "WinNet_DeleteRoute"]
         pub fn WinNet_DeleteRoute(routes: *const super::WinNetRoute) -> bool;
 
         #[link_name = "WinNet_DeactivateRouteManager"]
