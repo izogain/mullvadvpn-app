@@ -297,11 +297,9 @@ impl Drop for WinNetRoute {
     }
 }
 
-pub fn actiavte_routing_manager(routes: &[WinNetRoute]) -> bool {
-    let ptr = routes.as_ptr();
-    let length: u32 = routes.len() as u32;
+pub fn activate_routing_manager(routes: &[WinNetRoute]) -> bool {
     unsafe { WinNet_ActivateRouteManager(Some(log_sink), ptr::null_mut()) };
-    unsafe { WinNet_AddRoutes(ptr, length) }
+    routing_manager_add_routes(routes)
 }
 
 pub fn routing_manager_add_routes(routes: &[WinNetRoute]) -> bool {
@@ -322,10 +320,6 @@ mod api {
     /// logging callback type for use with `winnet.dll`.
     pub type LogSink =
         extern "system" fn(severity: LogSeverity, msg: *const c_char, ctx: *mut c_void);
-
-    /// Error callback type for use with `winnet.dll`.
-    /// TODO: Can we remove this definition yet?!
-    pub type ErrorSink = extern "system" fn(msg: *const c_char, ctx: *mut c_void);
 
     pub type ConnectivityCallback = unsafe extern "system" fn(is_connected: bool, ctx: *mut c_void);
 

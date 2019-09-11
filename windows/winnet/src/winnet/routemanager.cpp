@@ -447,7 +447,7 @@ bool EqualAddress(const NodeAddress &lhs, const NodeAddress &rhs)
 	}
 }
 
-RouteManager::RouteManager(std::shared_ptr<LogSink> logSink)
+RouteManager::RouteManager(std::shared_ptr<common::logging::ILogSink> logSink)
 	: m_logSink(logSink)
 {
 	const auto status = NotifyRouteChange2(AF_UNSPEC, RouteChangeCallback, this, FALSE, &m_notificationHandle);

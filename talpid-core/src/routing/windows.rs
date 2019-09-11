@@ -34,7 +34,7 @@ impl RouteManagerImpl {
             })
             .collect();
 
-        if !winnet::actiavte_routing_manager(&routes) {
+        if !winnet::activate_routing_manager(&routes) {
             return Err(Error::FailedToStartManager);
         }
 

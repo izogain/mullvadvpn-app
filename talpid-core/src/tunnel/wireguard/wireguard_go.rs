@@ -112,7 +112,7 @@ impl WgGoTunnel {
         };
 
         if handle < 0 {
-            return Err(Error::StartWireguardError { status: handle });
+            return Err(Error::FatalStartWireguardError);
         }
 
         if real_iface_name_raw.is_null() {

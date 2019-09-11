@@ -17,8 +17,8 @@
 // Custom header files below here.
 // So broken networking headers don't get confused and break the compilation.
 // ===
-#include "libcommon/string.h"
-#include "logsink.h"
+#include <libcommon/string.h>
+#include <libcommon/logging/ilogsink.h>
 
 namespace routemanager {
 
@@ -136,7 +136,7 @@ class RouteManager
 {
 public:
 
-	RouteManager(std::shared_ptr<LogSink> logSink);
+	RouteManager(std::shared_ptr<common::logging::ILogSink> logSink);
 	~RouteManager();
 
 	RouteManager(const RouteManager &) = delete;
@@ -151,7 +151,7 @@ public:
 
 private:
 
-	std::shared_ptr<LogSink> m_logSink;
+	std::shared_ptr<common::logging::ILogSink> m_logSink;
 
 	// These are the exact details derived from the route specification (`Route`).
 	// They are used when registering and deleting a route in the system.

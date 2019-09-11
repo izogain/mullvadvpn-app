@@ -21,7 +21,6 @@
     <ClInclude Include="netmonitor.h" />
     <ClInclude Include="routemanager.h" />
     <ClInclude Include="adapters.h" />
-    <ClInclude Include="logsink.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="winnet.def" />

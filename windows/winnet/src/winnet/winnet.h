@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../shared/logsink.h"
+#include <stdint.h>
 #include <stdbool.h>
 
 #ifdef WINNET_EXPORTS
@@ -103,10 +104,10 @@ WinNet_CheckConnectivity(
 	void *logSinkContext
 );
 
-enum class WINNET_IP_TYPE : uint8_t
+enum WINNET_IP_TYPE
 {
-	IPV4 = 0,
-	IPV6 = 1,
+	WINNET_IP_TYPE_IPV4 = 0,
+	WINNET_IP_TYPE_IPV6 = 1,
 };
 
 #pragma pack(push, 1)
@@ -147,7 +148,7 @@ WINNET_LINKAGE
 bool
 WINNET_API
 WinNet_ActivateRouteManager(
-	WinNetLogSink logSink,
+	MullvadLogSink logSink,
 	void *logSinkContext
 );
 

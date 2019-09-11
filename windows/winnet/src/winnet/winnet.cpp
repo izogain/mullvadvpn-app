@@ -20,7 +20,7 @@ namespace
 NetMonitor *g_NetMonitor = nullptr;
 
 RouteManager *g_RouteManager = nullptr;
-std::shared_ptr<LogSink> g_RouteManagerLogSink;
+std::shared_ptr<shared::LogSinkAdapter> g_RouteManagerLogSink;
 
 Network ConvertNetwork(const WINNET_IPNETWORK &in)
 {
@@ -34,7 +34,7 @@ Network ConvertNetwork(const WINNET_IPNETWORK &in)
 
 	switch (in.type)
 	{
-		case WINNET_IP_TYPE::IPV4:
+		case WINNET_IP_TYPE_IPV4:
 		{
 			out.Prefix.si_family = AF_INET;
 			out.Prefix.Ipv4.sin_family = AF_INET;
@@ -42,7 +42,7 @@ Network ConvertNetwork(const WINNET_IPNETWORK &in)
 
 			break;
 		}
-		case WINNET_IP_TYPE::IPV6:
+		case WINNET_IP_TYPE_IPV6:
 		{
 			out.Prefix.si_family = AF_INET6;
 			out.Prefix.Ipv6.sin6_family = AF_INET6;
@@ -85,14 +85,14 @@ std::optional<Node> ConvertNode(const WINNET_NODE *in)
 
 		switch (in->gateway->type)
 		{
-			case WINNET_IP_TYPE::IPV4:
+			case WINNET_IP_TYPE_IPV4:
 			{
 				gw.si_family = AF_INET;
 				gw.Ipv4.sin_addr.s_addr = common::network::LiteralAddressToNetwork(in->gateway->bytes);
 
 				break;
 			}
-			case WINNET_IP_TYPE::IPV6:
+			case WINNET_IP_TYPE_IPV6:
 			{
 				gw.si_family = AF_INET6;
 				memcpy(&gw.Ipv6.sin6_addr.u.Byte, in->gateway->bytes, 16);
@@ -366,7 +366,7 @@ WinNet_ActivateRouteManager(
 			throw std::runtime_error("Cannot activate route manager twice");
 		}
 
-		g_RouteManagerLogSink = std::make_shared<LogSink>(logSink, logSinkContext);
+		g_RouteManagerLogSink =   std::make_shared<shared::LogSinkAdapter>(logSink, logSinkContext);
 		g_RouteManager = new RouteManager(g_RouteManagerLogSink);
 
 		return true;
