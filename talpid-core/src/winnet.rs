@@ -136,11 +136,11 @@ pub fn is_offline() -> Result<bool, Error> {
     }
 }
 
-#[repr(packed)]
-struct WinNetIpType(u8);
+#[repr(C)]
+struct WinNetIpType(u32);
 
-const WINNET_IPV4: u8 = 0;
-const WINNET_IPV6: u8 = 1;
+const WINNET_IPV4: u32 = 0;
+const WINNET_IPV6: u32 = 1;
 
 impl WinNetIpType {
     pub fn v4() -> Self {
@@ -153,7 +153,7 @@ impl WinNetIpType {
 }
 
 
-#[repr(packed)]
+#[repr(C)]
 pub struct WinNetIpNetwork {
     ip_type: WinNetIpType,
     ip_bytes: [u8; 16],
@@ -172,7 +172,7 @@ impl From<IpNetwork> for WinNetIpNetwork {
     }
 }
 
-#[repr(packed)]
+#[repr(C)]
 pub struct WinNetIp {
     ip_type: WinNetIpType,
     ip_bytes: [u8; 16],
@@ -201,7 +201,7 @@ impl From<IpAddr> for WinNetIp {
     }
 }
 
-#[repr(packed)]
+#[repr(C)]
 pub struct WinNetNode {
     gateway: *mut WinNetIp,
     device_name: *mut u16,
@@ -266,7 +266,7 @@ impl Drop for WinNetNode {
 }
 
 
-#[repr(packed)]
+#[repr(C)]
 pub struct WinNetRoute {
     gateway: WinNetIpNetwork,
     node: *mut WinNetNode,
