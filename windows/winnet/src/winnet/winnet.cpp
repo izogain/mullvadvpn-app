@@ -52,7 +52,7 @@ Network ConvertNetwork(const WINNET_IPNETWORK &in)
 		}
 		default:
 		{
-			throw std::logic_error("Missing case handler in switch clause");
+			throw std::runtime_error("Missing case handler in switch clause");
 		}
 	}
 
