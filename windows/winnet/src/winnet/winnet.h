@@ -110,8 +110,6 @@ enum WINNET_IP_TYPE
 	WINNET_IP_TYPE_IPV6 = 1,
 };
 
-#pragma pack(push, 1)
-
 typedef struct tag_WINNET_IPNETWORK
 {
 	WINNET_IP_TYPE type;
@@ -140,8 +138,6 @@ typedef struct tag_WINNET_ROUTE
 	const WINNET_NODE *node;
 }
 WINNET_ROUTE;
-
-#pragma pack(pop)
 
 extern "C"
 WINNET_LINKAGE
