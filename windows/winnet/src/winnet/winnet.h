@@ -113,7 +113,7 @@ enum WINNET_IP_TYPE
 typedef struct tag_WINNET_IPNETWORK
 {
 	WINNET_IP_TYPE type;
-	uint8_t bytes[16];
+	uint8_t bytes[16];	// Network byte order.
 	uint8_t prefix;
 }
 WINNET_IPNETWORK;
@@ -121,7 +121,7 @@ WINNET_IPNETWORK;
 typedef struct tag_WINNET_IP
 {
 	WINNET_IP_TYPE type;
-	uint8_t bytes[16];
+	uint8_t bytes[16];	// Network byte order.
 }
 WINNET_IP;
 

@@ -38,7 +38,7 @@ Network ConvertNetwork(const WINNET_IPNETWORK &in)
 		{
 			out.Prefix.si_family = AF_INET;
 			out.Prefix.Ipv4.sin_family = AF_INET;
-			out.Prefix.Ipv4.sin_addr.s_addr = common::network::LiteralAddressToNetwork(in.bytes);
+			out.Prefix.Ipv4.sin_addr.s_addr = *reinterpret_cast<const uint32_t *>(in.bytes);
 
 			break;
 		}
@@ -88,7 +88,7 @@ std::optional<Node> ConvertNode(const WINNET_NODE *in)
 			case WINNET_IP_TYPE_IPV4:
 			{
 				gw.si_family = AF_INET;
-				gw.Ipv4.sin_addr.s_addr = common::network::LiteralAddressToNetwork(in->gateway->bytes);
+				gw.Ipv4.sin_addr.s_addr = *reinterpret_cast<const uint32_t *>(in->gateway->bytes);
 
 				break;
 			}
