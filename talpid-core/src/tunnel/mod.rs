@@ -9,8 +9,7 @@ use std::{
 };
 #[cfg(not(target_os = "android"))]
 use talpid_types::net::openvpn as openvpn_types;
-use talpid_types::net::wireguard as wireguard_types;
-use talpid_types::net::{GenericTunnelOptions, TunnelParameters};
+use talpid_types::net::{wireguard as wireguard_types, GenericTunnelOptions, TunnelParameters};
 
 /// A module for all OpenVPN related tunnel management.
 #[cfg(not(target_os = "android"))]

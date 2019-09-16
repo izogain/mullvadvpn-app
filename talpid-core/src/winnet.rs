@@ -325,10 +325,7 @@ mod api {
 
     extern "system" {
         #[link_name = "WinNet_ActivateRouteManager"]
-        pub fn WinNet_ActivateRouteManager(
-            sink: Option<LogSink>,
-            sink_context: *mut c_void,
-        );
+        pub fn WinNet_ActivateRouteManager(sink: Option<LogSink>, sink_context: *mut c_void);
 
         #[link_name = "WinNet_AddRoutes"]
         pub fn WinNet_AddRoutes(routes: *const super::WinNetRoute, num_routes: u32) -> bool;

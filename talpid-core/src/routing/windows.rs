@@ -41,7 +41,7 @@ impl RouteManagerImpl {
         }
 
 
-        Ok(Self {shutdown_rx})
+        Ok(Self { shutdown_rx })
     }
 }
 
