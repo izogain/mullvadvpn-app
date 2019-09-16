@@ -14,12 +14,14 @@ pub enum Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-pub struct RouteManagerImpl {}
+pub struct RouteManagerImpl {
+    shutdown_rx: oneshot::Receiver<oneshot::Sender<()>>,
+}
 
 impl RouteManagerImpl {
     pub fn new(
         required_routes: HashMap<IpNetwork, NetNode>,
-        _shutdown_rx: oneshot::Receiver<oneshot::Sender<()>>,
+        shutdown_rx: oneshot::Receiver<oneshot::Sender<()>>,
     ) -> Result<Self> {
         let routes: Vec<_> = required_routes
             .iter()
@@ -39,7 +41,7 @@ impl RouteManagerImpl {
         }
 
 
-        Ok(Self {})
+        Ok(Self {shutdown_rx})
     }
 }
 
@@ -56,6 +58,15 @@ impl Future for RouteManagerImpl {
     type Item = ();
     type Error = Error;
     fn poll(&mut self) -> Result<Async<()>> {
-        Ok(Async::Ready(()))
+        match self.shutdown_rx.poll() {
+            Ok(Async::Ready(result_tx)) => {
+                if let Err(_e) = result_tx.send(()) {
+                    log::error!("Receiver already down");
+                }
+                Ok(Async::Ready(()))
+            }
+            Ok(Async::NotReady) => Ok(Async::NotReady),
+            Err(_) => Ok(Async::Ready(())),
+        }
     }
 }
