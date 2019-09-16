@@ -14,6 +14,7 @@ pub enum Error {
     TimeoutError,
 }
 
+#[cfg(not(target_os = "windows"))]
 pub fn monitor_ping(ip: IpAddr, timeout_secs: u16, interface: &str) -> Result<(), Error> {
     loop {
         let start = Instant::now();
@@ -26,6 +27,14 @@ pub fn monitor_ping(ip: IpAddr, timeout_secs: u16, interface: &str) -> Result<()
     }
 }
 
+#[cfg(target_os = "windows")]
+pub fn monitor_ping(ip: IpAddr, timeout_secs: u16, interface: &str) -> Result<(), Error> {
+    loop {
+        thread::sleep(Duration::from_secs(1));
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
 pub fn ping(
     ip: IpAddr,
     timeout_secs: u16,
@@ -42,6 +51,17 @@ pub fn ping(
     }
 }
 
+#[cfg(target_os = "windows")]
+pub fn ping(
+    ip: IpAddr,
+    timeout_secs: u16,
+    interface: &str,
+    exit_on_first_reply: bool,
+) -> Result<(), Error> {
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
 fn ping_cmd(
     ip: IpAddr,
     timeout_secs: u16,
