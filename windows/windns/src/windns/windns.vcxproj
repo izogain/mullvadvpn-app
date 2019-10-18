@@ -175,6 +175,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="adapters.h" />
     <ClInclude Include="confineoperation.h" />
     <ClInclude Include="logsink.h" />
     <ClInclude Include="ilogsink.h" />
@@ -184,6 +185,7 @@
     <ClInclude Include="windns.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="adapters.cpp" />
     <ClCompile Include="confineoperation.cpp" />
     <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="logsink.cpp" />
