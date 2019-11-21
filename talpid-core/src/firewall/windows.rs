@@ -133,7 +133,7 @@ impl Firewall {
         &mut self,
         endpoint: &Endpoint,
         winfw_settings: &WinFwSettings,
-        _tunnel_iface_alias: String,
+        tunnel_iface_alias: String,
         pingable_hosts: &Vec<IpAddr>,
     ) -> Result<(), Error> {
         trace!("Applying 'connecting' firewall policy");
@@ -162,8 +162,11 @@ impl Firewall {
             .map(|ip| ip.as_ptr())
             .collect::<Vec<_>>();
 
+        let interface_alias =
+            WideCString::new(tunnel_iface_alias.encode_utf16().collect::<Vec<_>>()).unwrap();
+
         let pingable_hosts = WinFwPingableHosts {
-            interfaceAlias: ptr::null(),
+            interfaceAlias: interface_alias.as_ptr(),
             addresses: pingable_address_ptrs.as_ptr(),
             num_addresses: pingable_addresses.len(),
         };
