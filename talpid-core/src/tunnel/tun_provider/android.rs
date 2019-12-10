@@ -136,34 +136,30 @@ impl AndroidTunProvider {
             {
                 return Ok(());
             }
-
-            let (socket, destination) = Self::random_udp_socket_and_destination(tun_config)?;
-            let mut buf = vec![0u8; thread_rng().gen_range(17, 214)];
-            // fill buff with random data
-            thread_rng().fill(buf.as_mut_slice());
-            socket
-                .send_to(&buf, destination)
-                .map_err(Error::SendToUdpSocket)?;
+            Self::try_sending_random_udp(tun_config)?;
         }
 
         Err(Error::TunnelDeviceTimeout)
     }
 
-    fn random_udp_socket_and_destination(
-        tun_config: &TunConfig,
-    ) -> Result<(UdpSocket, SocketAddr), Error> {
-        loop {
+    fn try_sending_random_udp(tun_config: &TunConfig) -> Result<(), Error> {
+        let mut tried_ipv6 = false;
+        const TIMEOUT: Duration = Duration::from_millis(300);
+        let start = Instant::now();
+
+        while start.elapsed() < TIMEOUT {
             // pick any random route to select between Ipv4 and Ipv6
             // TODO: if we are to allow LAN on Android by changing the routes that are stuffed in
             // TunConfig, then this should be revisited to be fair between IPv4 and IPv6
-            let is_ipv4 = tun_config
+            let should_generate_ipv4 = tun_config
                 .routes
                 .choose(&mut thread_rng())
                 .map(|route| route.is_ipv4())
-                .unwrap_or(true);
+                .unwrap_or(true)
+                || tried_ipv6;
 
             let rand_port = thread_rng().gen();
-            let (local_addr, rand_dest_addr) = if is_ipv4 {
+            let (local_addr, rand_dest_addr) = if should_generate_ipv4 {
                 let mut ipv4_bytes = [0u8; 4];
                 thread_rng().fill(&mut ipv4_bytes);
                 (
@@ -186,8 +182,28 @@ impl AndroidTunProvider {
 
 
             let socket = UdpSocket::bind(local_addr).map_err(Error::BindUdpSocket)?;
-            return Ok((socket, rand_dest_addr));
+
+            let mut buf = vec![0u8; thread_rng().gen_range(17, 214)];
+            // fill buff with random data
+            thread_rng().fill(buf.as_mut_slice());
+            match socket.send_to(&buf, rand_dest_addr) {
+                Ok(_) => return Ok(()),
+                Err(err) => {
+                    match err.raw_os_error() {
+                        // Error code 101 - specified network is unreachable
+                        // Error code 22 - specified address is not usable
+                        Some(101) | Some(22) => {
+                            // if we failed whilst trying to send to IPv6, we should not try
+                            // IPv6 again.
+                            tried_ipv6 = true;
+                            continue;
+                        }
+                        _ => return Err(Error::SendToUdpSocket(err)),
+                    }
+                }
+            };
         }
+        Ok(())
     }
 
     /// Open a tunnel device using the previous or the default configuration.
@@ -268,6 +284,12 @@ impl AndroidTunProvider {
 }
 
 fn is_public_ip(addr: IpAddr) -> bool {
+    if let IpAddr::V4(ipv4) = addr {
+        // 0.x.x.x is not a publicly routable address
+        if ipv4.octets()[0] == 0u8 {
+            return false;
+        }
+    }
     // A non-exhaustive list of non-public subnets
     let publicly_unroutable_subnets: Vec<IpNetwork> = vec![
         // IPv4 local networks
