@@ -148,32 +148,12 @@ impl AndroidTunProvider {
         let start = Instant::now();
 
         while start.elapsed() < TIMEOUT {
-            // pick any random route to select between Ipv4 and Ipv6
-            // TODO: if we are to allow LAN on Android by changing the routes that are stuffed in
-            // TunConfig, then this should be revisited to be fair between IPv4 and IPv6
-            let should_generate_ipv4 = tun_config
-                .routes
-                .choose(&mut thread_rng())
-                .map(|route| route.is_ipv4())
-                .unwrap_or(true)
-                || tried_ipv6;
 
-            let rand_port = thread_rng().gen();
-            let (local_addr, rand_dest_addr) = if should_generate_ipv4 {
-                let mut ipv4_bytes = [0u8; 4];
-                thread_rng().fill(&mut ipv4_bytes);
-                (
-                    SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0),
-                    SocketAddr::new(IpAddr::from(ipv4_bytes).into(), rand_port),
-                )
-            } else {
-                let mut ipv6_bytes = [0u8; 16];
-                thread_rng().fill(&mut ipv6_bytes);
-                (
-                    SocketAddr::new(Ipv6Addr::UNSPECIFIED.into(), 0),
-                    SocketAddr::new(IpAddr::from(ipv6_bytes).into(), rand_port),
-                )
-            };
+            // TODO: revisit generating random AND VALID IPv6 addresses
+            let mut ipv4_bytes = [0u8; 4];
+            thread_rng().fill(&mut ipv4_bytes);
+            let rand_dest_addr = SocketAddr::new(IpAddr::from(ipv4_bytes).into(), thread_rng().gen());
+
             // TODO: once https://github.com/rust-lang/rust/issues/27709 is resolved, please use
             // `is_global()` to check if a new address should be attempted.
             if !is_public_ip(rand_dest_addr.ip()) {
@@ -181,6 +161,7 @@ impl AndroidTunProvider {
             }
 
 
+            let local_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0);
             let socket = UdpSocket::bind(local_addr).map_err(Error::BindUdpSocket)?;
 
             let mut buf = vec![0u8; thread_rng().gen_range(17, 214)];
