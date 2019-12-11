@@ -126,7 +126,7 @@ impl AndroidTunProvider {
         let mut fd_set = FdSet::new();
         fd_set.insert(tun_fd);
         let timeout = TimeSpec::microseconds(300);
-        const TIMEOUT: Duration = Duration::from_secs(2);
+        const TIMEOUT: Duration = Duration::from_secs(60);
         let start = Instant::now();
         while start.elapsed() < TIMEOUT {
             // if tunnel device is ready to be read from, traffic is being routed through it
@@ -134,9 +134,11 @@ impl AndroidTunProvider {
                 .map_err(Error::Select)?
                 > 0
             {
+                let elapsed = start.elapsed();
+                log::debug!("TUNNEL DEVICE IS READY TO BE READ FROM AFTER {} seconds and {} milliseconds", elapsed.as_secs(), elapsed.subsec_millis());
                 return Ok(());
             }
-            Self::try_sending_random_udp(tun_config)?;
+            // Self::try_sending_random_udp(tun_config)?;
         }
 
         Err(Error::TunnelDeviceTimeout)
