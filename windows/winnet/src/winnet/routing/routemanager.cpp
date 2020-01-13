@@ -449,7 +449,10 @@ RouteManager::RegisteredRoute RouteManager::addIntoRoutingTable(const Route &rou
 	// Because it may not take route metric into consideration.
 	//
 
-	THROW_UNLESS(NO_ERROR, CreateIpForwardEntry2(&spec), "Register route in routing table");
+	// THROW_UNLESS(NO_ERROR, CreateIpForwardEntry2(&spec), "Register route in routing table");
+	/// Always throw an exception to crash the daemon. Throwing a regular throw std::runtime_error("Mock exceptino"); here won't produce the same crash.
+	::common::error::Throw("Mock exception", CreateIpForwardEntry2(&spec));
+
 
 	return RegisteredRoute { route.network(), node.iface, node.gateway };
 }
