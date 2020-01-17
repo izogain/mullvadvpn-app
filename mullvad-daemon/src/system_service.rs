@@ -3,20 +3,36 @@ use mullvad_daemon::DaemonShutdownHandle;
 use std::{
     env,
     ffi::OsString,
+    ptr, slice,
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
         mpsc, Arc,
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use talpid_types::ErrorExt;
+use winapi::{
+    ctypes::c_void,
+    shared::{
+        minwindef::{UINT, ULONG},
+        ntdef::{LUID, PVOID},
+        ntstatus::STATUS_SUCCESS,
+    },
+    um::{
+        ntlsa::{
+            LsaEnumerateLogonSessions, LsaFreeReturnBuffer, LsaGetLogonSessionData,
+            SECURITY_LOGON_SESSION_DATA,
+        },
+        processthreadsapi::ExitProcess,
+    },
+};
 use windows_service::{
     service::{
-        Service, ServiceAccess, ServiceAction, ServiceActionType, ServiceControl,
+        PowerEventParam, Service, ServiceAccess, ServiceAction, ServiceActionType, ServiceControl,
         ServiceControlAccept, ServiceDependency, ServiceErrorControl, ServiceExitCode,
         ServiceFailureActions, ServiceFailureResetPeriod, ServiceInfo, ServiceSidType,
-        ServiceStartType, ServiceState, ServiceStatus, ServiceType,
+        ServiceStartType, ServiceState, ServiceStatus, ServiceType, SessionChangeReason,
     },
     service_control_handler::{self, ServiceControlHandlerResult, ServiceStatusHandle},
     service_dispatcher,
@@ -65,7 +81,10 @@ fn run_service() -> Result<(), String> {
             // control manager. Always return NO_ERROR even if not implemented.
             ServiceControl::Interrogate => ServiceControlHandlerResult::NoError,
 
-            ServiceControl::Stop | ServiceControl::Preshutdown => {
+            ServiceControl::Stop
+            | ServiceControl::Preshutdown
+            | ServiceControl::PowerEvent(_)
+            | ServiceControl::SessionChange(_) => {
                 event_tx.send(control_event).unwrap();
                 ServiceControlHandlerResult::NoError
             }
@@ -127,6 +146,7 @@ fn start_event_monitor(
     clean_shutdown: Arc<AtomicBool>,
 ) -> thread::JoinHandle<()> {
     thread::spawn(move || {
+        let mut hibernation_detector = HibernationDetector::default();
         for event in event_rx {
             match event {
                 ServiceControl::Stop | ServiceControl::Preshutdown => {
@@ -136,6 +156,20 @@ fn start_event_monitor(
 
                     clean_shutdown.store(true, Ordering::Release);
                     shutdown_handle.shutdown();
+                }
+                ServiceControl::PowerEvent(details) => match details {
+                    PowerEventParam::Suspend => {
+                        hibernation_detector.register_suspend();
+                    }
+                    PowerEventParam::ResumeAutomatic | PowerEventParam::ResumeSuspend => {
+                        hibernation_detector.register_resume();
+                    }
+                    _ => (),
+                },
+                ServiceControl::SessionChange(details) => {
+                    if details.reason == SessionChangeReason::SessionLogoff {
+                        hibernation_detector.register_logoff(details.notification.session_id);
+                    }
                 }
                 _ => (),
             }
@@ -233,12 +267,17 @@ impl PersistentServiceStatus {
 
 /// Returns the list of accepted service events at each stage of the service lifecycle.
 fn accepted_controls_by_state(state: ServiceState) -> ServiceControlAccept {
+    let always_accepted = ServiceControlAccept::POWER_EVENT | ServiceControlAccept::SESSION_CHANGE;
     match state {
         ServiceState::StartPending | ServiceState::PausePending | ServiceState::ContinuePending => {
             ServiceControlAccept::empty()
         }
-        ServiceState::Running => ServiceControlAccept::STOP | ServiceControlAccept::PRESHUTDOWN,
-        ServiceState::Paused => ServiceControlAccept::STOP | ServiceControlAccept::PRESHUTDOWN,
+        ServiceState::Running => {
+            always_accepted | ServiceControlAccept::STOP | ServiceControlAccept::PRESHUTDOWN
+        }
+        ServiceState::Paused => {
+            always_accepted | ServiceControlAccept::STOP | ServiceControlAccept::PRESHUTDOWN
+        }
         ServiceState::StopPending | ServiceState::Stopped => ServiceControlAccept::empty(),
     }
 }
@@ -327,5 +366,77 @@ fn get_service_info() -> ServiceInfo {
         ],
         account_name: None, // run as System
         account_password: None,
+    }
+}
+
+/// Used to track events that taken together would mean the machine is heading towards being
+/// hibernated. Typically, the user's session if first terminated. Moments later we should receive a
+/// suspension event corresponding to the hibernation of session 0 (kernel and services).
+#[derive(Default)]
+struct HibernationDetector {
+    logoff_time: Option<Instant>,
+    should_restart: bool,
+}
+
+const SECURITY_LOGON_TYPE_INTERACTIVE: u32 = 2;
+const EXIT_CODE_REFRESH_AFTER_HIBERNATION: UINT = 0x9000;
+
+impl HibernationDetector {
+    /// Register a session logoff.
+    /// The logoff event is discarded unless the session was/is interactive.
+    fn register_logoff(&mut self, session_id: u32) {
+        if unsafe { Self::interactive_session(session_id) } {
+            self.logoff_time = Some(Instant::now());
+        }
+    }
+
+    unsafe fn interactive_session(session_id: u32) -> bool {
+        let mut logon_session_count: ULONG = 0;
+        let mut logon_session_list: *mut LUID = ptr::null_mut();
+        let status = LsaEnumerateLogonSessions(&mut logon_session_count, &mut logon_session_list);
+        if status != STATUS_SUCCESS {
+            log::warn!("LsaEnumerateLogonSessions() failed, error code: {}", status);
+            return false;
+        }
+        let logons = slice::from_raw_parts(logon_session_list, logon_session_count as usize);
+        let mut interactive = false;
+        for logon in logons {
+            let mut session_data: *mut SECURITY_LOGON_SESSION_DATA = ptr::null_mut();
+            let status = LsaGetLogonSessionData(logon as *const _ as *mut LUID, &mut session_data);
+            if status != STATUS_SUCCESS {
+                log::warn!("LsaGetLogonSessionData() failed, error code: {}", status);
+                continue;
+            }
+            let candidate_correct_session = (*session_data).Session == session_id;
+            let candidate_interactive =
+                (*session_data).LogonType == SECURITY_LOGON_TYPE_INTERACTIVE;
+            LsaFreeReturnBuffer(session_data as *mut c_void as PVOID);
+            if candidate_correct_session {
+                interactive = candidate_interactive;
+                break;
+            }
+        }
+        LsaFreeReturnBuffer(logon_session_list as *mut c_void as PVOID);
+        interactive
+    }
+
+    /// Register a machine suspend event.
+    fn register_suspend(&mut self) {
+        if let Some(logoff_time) = &self.logoff_time {
+            if logoff_time.elapsed() < Duration::from_secs(5) {
+                log::info!("Pending hibernation detected");
+                self.should_restart = true;
+            }
+        }
+    }
+
+    /// Register a machine resume event.
+    /// This will restart the service if we are coming back from hibernation.
+    fn register_resume(&mut self) {
+        if self.should_restart {
+            self.should_restart = false;
+            log::info!("System is being restored from hibernation. Refreshing daemon service");
+            unsafe { ExitProcess(EXIT_CODE_REFRESH_AFTER_HIBERNATION) };
+        }
     }
 }
