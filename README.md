@@ -368,11 +368,8 @@ the version of the app you are going to release. For example `2018.3-beta1` or `
 
     Please verify that the script did the right thing before you push the commit and tag it created.
 
-1. When building for macOS, the following environment variables must be set:
-   * `CSC_LINK` - The path to the `.p12` certificate file with the Apple application signing keys.
-     This file must contain both the "Developer ID Application" and the "Developer ID Installer"
-     certificates + private keys. If this environment variable is missing `build.sh` will skip
-     signing.
+1. When building for Windows or macOS, the following environment variables must be set:
+   * `CSC_LINK` - The path to the certificate used for code signing.
    * `CSC_KEY_PASSWORD` - The password to the file given in `CSC_LINK`. If this is not set then
      `build.sh` will prompt you for it. If you set it yourself, make sure to define it in such a
      way that it's not stored in your bash history:
@@ -380,6 +377,12 @@ the version of the app you are going to release. For example `2018.3-beta1` or `
      export HISTCONTROL=ignorespace
      export CSC_KEY_PASSWORD='my secret'
      ```
+
+1. When building for macOS, the following environment variables must be set:
+   * `CSC_LINK` - The path to the `.p12` certificate file with the Apple application signing keys.
+     This file must contain both the "Developer ID Application" and the "Developer ID Installer"
+     certificates + private keys. If this environment variable is missing `build.sh` will skip
+     signing.
    * `NOTARIZE_APPLE_ID` - The AppleId to use when notarizing the app. Only needed on release builds
    * `NOTARIZE_APPLE_ID_PASSWORD` - The AppleId password for the account in `NOTARIZE_APPLE_ID`.
      Don't use the real AppleId password! Instead create an app specific password and add that to
