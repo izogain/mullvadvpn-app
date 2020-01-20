@@ -26,7 +26,27 @@ use talpid_types::net::wireguard;
 use tokio_core::reactor::Handle;
 
 pub use jsonrpc_client_core::{Error, ErrorKind};
-pub use jsonrpc_client_http::{Error as HttpError, HttpHandle};
+pub use jsonrpc_client_http::Error as HttpError;
+// pub use jsonrpc_client_http::{Error as HttpError, HttpHandle};
+#[derive(Clone)]
+pub struct HttpHandle {}
+
+use futures::Future;
+impl jsonrpc_client_core::Transport for HttpHandle {
+    type Future = Box<dyn Future<Item = Vec<u8>, Error = Self::Error> + Send>;
+    type Error = HttpError;
+
+    fn get_next_id(&mut self) -> u64 {
+        return 1;
+    }
+
+    fn send(&self, json_data: Vec<u8>) -> Self::Future {
+        return Box::new(futures::future::err(HttpError::from(
+            jsonrpc_client_http::ErrorKind::ClientCreatorError,
+        )));
+    }
+}
+
 
 pub mod event_loop;
 pub mod rest;
@@ -88,17 +108,18 @@ impl MullvadRpcFactory {
             HttpTransportBuilder<HttpsClientWithSni>,
         ) -> jsonrpc_client_http::Result<HttpTransport>,
     {
-        let client = HttpsClientWithSni::new(API_HOST.to_owned(), self.ca_path.clone());
-        let transport_builder = HttpTransportBuilder::with_client(client).timeout(RPC_TIMEOUT);
+        Ok(HttpHandle {})
+        // let client = HttpsClientWithSni::new(API_HOST.to_owned(), self.ca_path.clone());
+        // let transport_builder = HttpTransportBuilder::with_client(client).timeout(RPC_TIMEOUT);
 
-        let transport = create_transport(transport_builder)?;
-        let api_uri = self.api_uri();
-        log::debug!("Using API URI {}", api_uri);
-        let mut handle = transport.handle(&api_uri)?;
+        // let transport = create_transport(transport_builder)?;
+        // let api_uri = self.api_uri();
+        // log::debug!("Using API URI {}", api_uri);
+        // let mut handle = transport.handle(&api_uri)?;
 
-        handle.set_header(Host::new(API_HOST, None));
+        // handle.set_header(Host::new(API_HOST, None));
 
-        Ok(handle)
+        // Ok(handle)
     }
 
     fn api_uri(&mut self) -> String {

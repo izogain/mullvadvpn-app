@@ -741,66 +741,66 @@ impl RelayListUpdater {
                 // Someone sent an explicit update command
                 Ok(()) => true,
                 // Normal timeout, check cache age
-                Err(mpsc::RecvTimeoutError::Timeout) => self.should_update(),
+                Err(mpsc::RecvTimeoutError::Timeout) => false,
                 // We have been canceled
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
             };
-            if should_update {
-                match self.update() {
-                    Ok(()) => info!("Updated list of relays"),
-                    Err(error) => error!("{}", error.display_chain()),
-                }
-            }
+            // if should_update {
+            //     match self.update() {
+            //         Ok(()) => info!("Updated list of relays"),
+            //         Err(error) => error!("{}", error.display_chain()),
+            //     }
+            // }
         }
         debug!("Relay list updater thread has finished");
     }
 
-    /// Returns true if the current parsed_relays is older than UPDATE_INTERVAL
-    fn should_update(&mut self) -> bool {
-        match SystemTime::now().duration_since(self.parsed_relays.lock().last_updated()) {
-            Ok(duration) => duration > UPDATE_INTERVAL,
-            // If the clock is skewed we have no idea by how much or when the last update
-            // actually was, better download again to get in sync and get a `last_updated`
-            // timestamp corresponding to the new time.
-            Err(_) => true,
-        }
-    }
+//     /// Returns true if the current parsed_relays is older than UPDATE_INTERVAL
+//     fn should_update(&mut self) -> bool {
+//         match SystemTime::now().duration_since(self.parsed_relays.lock().last_updated()) {
+//             Ok(duration) => duration > UPDATE_INTERVAL,
+//             // If the clock is skewed we have no idea by how much or when the last update
+//             // actually was, better download again to get in sync and get a `last_updated`
+//             // timestamp corresponding to the new time.
+//             Err(_) => true,
+//         }
+//     }
 
-    fn update(&mut self) -> Result<(), Error> {
-        let new_relay_list = self.download_relay_list()?;
+//     fn update(&mut self) -> Result<(), Error> {
+//         let new_relay_list = self.download_relay_list()?;
 
-        if let Err(error) = self.cache_relays(&new_relay_list) {
-            error!(
-                "{}",
-                error.display_chain_with_msg("Failed to update relay cache on disk")
-            );
-        }
+//         if let Err(error) = self.cache_relays(&new_relay_list) {
+//             error!(
+//                 "{}",
+//                 error.display_chain_with_msg("Failed to update relay cache on disk")
+//             );
+//         }
 
-        let new_parsed_relays = ParsedRelays::from_relay_list(new_relay_list, SystemTime::now());
-        info!(
-            "Downloaded relay inventory has {} relays",
-            new_parsed_relays.relays().len()
-        );
+//         let new_parsed_relays = ParsedRelays::from_relay_list(new_relay_list, SystemTime::now());
+//         info!(
+//             "Downloaded relay inventory has {} relays",
+//             new_parsed_relays.relays().len()
+//         );
 
-        let mut parsed_relays = self.parsed_relays.lock();
-        *parsed_relays = new_parsed_relays;
-        (self.on_update)(parsed_relays.locations());
-        Ok(())
-    }
+//         let mut parsed_relays = self.parsed_relays.lock();
+//         *parsed_relays = new_parsed_relays;
+//         (self.on_update)(parsed_relays.locations());
+//         Ok(())
+//     }
 
-    fn download_relay_list(&mut self) -> Result<RelayList, Error> {
-        let download_future = self.rpc_client.relay_list_v3().map_err(Error::Download);
-        let relay_list = Timer::default()
-            .timeout(download_future, DOWNLOAD_TIMEOUT)
-            .wait()?;
+//     fn download_relay_list(&mut self) -> Result<RelayList, Error> {
+//         let download_future = self.rpc_client.relay_list_v3().map_err(Error::Download);
+//         let relay_list = Timer::default()
+//             .timeout(download_future, DOWNLOAD_TIMEOUT)
+//             .wait()?;
 
-        Ok(relay_list)
-    }
+//         Ok(relay_list)
+//     }
 
-    /// Write a `RelayList` to the cache file.
-    fn cache_relays(&self, relays: &RelayList) -> Result<(), Error> {
-        debug!("Writing relays cache to {}", self.cache_path.display());
-        let file = File::create(&self.cache_path).map_err(Error::WriteRelayCache)?;
-        serde_json::to_writer_pretty(io::BufWriter::new(file), relays).map_err(Error::Serialize)
-    }
+//     /// Write a `RelayList` to the cache file.
+//     fn cache_relays(&self, relays: &RelayList) -> Result<(), Error> {
+//         debug!("Writing relays cache to {}", self.cache_path.display());
+//         let file = File::create(&self.cache_path).map_err(Error::WriteRelayCache)?;
+//         serde_json::to_writer_pretty(io::BufWriter::new(file), relays).map_err(Error::Serialize)
+//     }
 }

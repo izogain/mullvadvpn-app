@@ -408,13 +408,13 @@ where
         );
 
         let app_version_info = version_check::load_cache(&cache_dir);
-        let version_check_future = version_check::VersionUpdater::new(
-            rpc_handle.clone(),
-            cache_dir.clone(),
-            internal_event_tx.clone(),
-            app_version_info.clone(),
-        );
-        tokio_remote.spawn(|_| version_check_future);
+        // let version_check_future = version_check::VersionUpdater::new(
+        //     rpc_handle.clone(),
+        //     cache_dir.clone(),
+        //     internal_event_tx.clone(),
+        //     app_version_info.clone(),
+        // );
+        // tokio_remote.spawn(|_| version_check_future);
 
         let settings = settings::load();
 

@@ -50,7 +50,7 @@ pub struct KeyManager {
     daemon_tx: UnboundedSender<InternalDaemonEvent>,
     http_handle: mullvad_rpc::HttpHandle,
     tokio_remote: Remote,
-    current_job: Option<CancelHandle>,
+    // current_job: Option<CancelHandle>,
 
     abort_scheduler_tx: Option<CancelHandle>,
     // unit: minutes
@@ -67,7 +67,7 @@ impl KeyManager {
             daemon_tx,
             http_handle,
             tokio_remote,
-            current_job: None,
+            // current_job: None,
             abort_scheduler_tx: None,
             auto_rotation_interval: 0,
         }
@@ -115,9 +115,9 @@ impl KeyManager {
 
     /// Stop current key generation
     pub fn reset(&mut self) {
-        if let Some(job) = self.current_job.take() {
-            job.cancel()
-        }
+        // if let Some(job) = self.current_job.take() {
+        //     job.cancel()
+        // }
     }
 
     /// Generate a new private key
@@ -129,10 +129,11 @@ impl KeyManager {
             .map_err(Self::map_rpc_error)
     }
 
-    pub fn run_future_sync<T: Send + 'static, E: Send + 'static>(
+    fn run_future_sync<T: Send + 'static, E: Send + 'static>(
         &mut self,
         fut: impl Future<Item = T, Error = E> + Send + 'static,
     ) -> std::result::Result<T, E> {
+        panic!("shouldn't be ever ran");
         self.reset();
         let (tx, rx) = oneshot::channel();
 
@@ -148,90 +149,92 @@ impl KeyManager {
         account: AccountToken,
         old_key: PublicKey,
     ) -> Result<WireguardData> {
-        self.reset();
-        let new_key = PrivateKey::new_from_random().map_err(Error::GenerationError)?;
-        self.run_future_sync(Self::replace_key_rpc(
-            self.http_handle.clone(),
-            account,
-            old_key,
-            new_key,
-        ))
-        .map_err(Self::map_rpc_error)
+        // self.reset();
+        // let new_key = PrivateKey::new_from_random().map_err(Error::GenerationError)?;
+        // self.run_future_sync(Self::replace_key_rpc(
+        //     self.http_handle.clone(),
+        //     account,
+        //     old_key,
+        //     new_key,
+        // ))
+        // .map_err(Self::map_rpc_error)
+        return Err(Error::ExectuionError);
     }
 
 
     /// Generate a new private key asyncronously. The new keys will be sent to the daemon channel.
     pub fn generate_key_async(&mut self, account: AccountToken) -> Result<()> {
-        self.reset();
-        let private_key = PrivateKey::new_from_random().map_err(Error::GenerationError)?;
-        let future_generator = self.push_future_generator(account.clone(), private_key);
+        return Err(Error::ExectuionError);
+        // self.reset();
+        // let private_key = PrivateKey::new_from_random().map_err(Error::GenerationError)?;
+        // let future_generator = self.push_future_generator(account.clone(), private_key);
 
-        let retry_strategy = ExponentialBackoff::from_millis(300)
-            .max_delay(Duration::from_secs(60 * 60))
-            .map(jitter);
+        // let retry_strategy = ExponentialBackoff::from_millis(300)
+        //     .max_delay(Duration::from_secs(60 * 60))
+        //     .map(jitter);
 
-        let should_retry = |err: &jsonrpc_client_core::Error| -> bool {
-            match err.kind() {
-                jsonrpc_client_core::ErrorKind::JsonRpcError(err)
-                    if err.code.code() == TOO_MANY_KEYS_ERROR_CODE =>
-                {
-                    false
-                }
-                _ => true,
-            }
-        };
+        // let should_retry = |err: &jsonrpc_client_core::Error| -> bool {
+        //     match err.kind() {
+        //         jsonrpc_client_core::ErrorKind::JsonRpcError(err)
+        //             if err.code.code() == TOO_MANY_KEYS_ERROR_CODE =>
+        //         {
+        //             false
+        //         }
+        //         _ => true,
+        //     }
+        // };
 
-        let upload_future =
-            RetryIf::spawn(retry_strategy, future_generator, should_retry).map_err(move |err| {
-                match err {
-                    // This should really be unreachable, since the retry strategy is infinite.
-                    tokio_retry::Error::OperationError(e) => {
-                        log::error!(
-                            "{}",
-                            e.display_chain_with_msg("Failed to generate wireguard key:")
-                        );
-                        Self::map_rpc_error(e)
-                    }
-                    tokio_retry::Error::TimerError(timer_error) => {
-                        log::error!("Tokio timer error {}", timer_error);
-                        Error::ExectuionError
-                    }
-                }
-            });
+        // let upload_future =
+        //     RetryIf::spawn(retry_strategy, future_generator, should_retry).map_err(move |err| {
+        //         match err {
+        //             // This should really be unreachable, since the retry strategy is infinite.
+        //             tokio_retry::Error::OperationError(e) => {
+        //                 log::error!(
+        //                     "{}",
+        //                     e.display_chain_with_msg("Failed to generate wireguard key:")
+        //                 );
+        //                 Self::map_rpc_error(e)
+        //             }
+        //             tokio_retry::Error::TimerError(timer_error) => {
+        //                 log::error!("Tokio timer error {}", timer_error);
+        //                 Error::ExectuionError
+        //             }
+        //         }
+        //     });
 
 
-        let (fut, cancel_handle) = Cancellable::new(upload_future);
-        let daemon_tx = self.daemon_tx.clone();
-        let fut = fut.then(move |result| {
-            match result {
-                Ok(wireguard_data) => {
-                    let _ = daemon_tx.unbounded_send(InternalDaemonEvent::WgKeyEvent((
-                        account,
-                        Ok(wireguard_data),
-                    )));
-                }
-                Err(CancelErr::Inner(e)) => {
-                    let _ = daemon_tx
-                        .unbounded_send(InternalDaemonEvent::WgKeyEvent((account, Err(e))));
-                }
-                Err(CancelErr::Cancelled) => {
-                    log::error!("Key generation cancelled");
-                }
-            };
-            Ok(())
-        });
+        // let (fut, cancel_handle) = Cancellable::new(upload_future);
+        // let daemon_tx = self.daemon_tx.clone();
+        // let fut = fut.then(move |result| {
+        //     match result {
+        //         Ok(wireguard_data) => {
+        //             let _ = daemon_tx.unbounded_send(InternalDaemonEvent::WgKeyEvent((
+        //                 account,
+        //                 Ok(wireguard_data),
+        //             )));
+        //         }
+        //         Err(CancelErr::Inner(e)) => {
+        //             let _ = daemon_tx
+        //                 .unbounded_send(InternalDaemonEvent::WgKeyEvent((account, Err(e))));
+        //         }
+        //         Err(CancelErr::Cancelled) => {
+        //             log::error!("Key generation cancelled");
+        //         }
+        //     };
+        //     Ok(())
+        // });
 
-        match self
-            .tokio_remote
-            .execute(fut)
-            .map_err(|_| Error::ExectuionError)
-        {
-            Ok(res) => {
-                self.current_job = Some(cancel_handle);
-                Ok(res)
-            }
-            Err(e) => Err(e),
-        }
+        // match self
+        //     .tokio_remote
+        //     .execute(fut)
+        //     .map_err(|_| Error::ExectuionError)
+        // {
+        //     Ok(res) => {
+        //         self.current_job = Some(cancel_handle);
+        //         Ok(res)
+        //     }
+        //     Err(e) => Err(e),
+        // }
     }
 
 
@@ -422,27 +425,27 @@ impl KeyManager {
     }
 
     fn run_automatic_rotation(&mut self, account_token: AccountToken, public_key: PublicKey) {
-        self.stop_automatic_rotation();
+        // self.stop_automatic_rotation();
 
-        if let 0 = self.auto_rotation_interval {
-            // disabled
-            return;
-        }
+        // if let 0 = self.auto_rotation_interval {
+        //     // disabled
+        //     return;
+        // }
 
-        // Schedule cancellable series of repeating rotation tasks
-        let fut = Self::create_automatic_rotation(
-            self.daemon_tx.clone(),
-            self.http_handle.clone(),
-            public_key,
-            60u64 * (self.auto_rotation_interval as u64),
-            account_token,
-        );
-        let (fut, cancel_handle) = Cancellable::new(fut);
+        // // Schedule cancellable series of repeating rotation tasks
+        // let fut = Self::create_automatic_rotation(
+        //     self.daemon_tx.clone(),
+        //     self.http_handle.clone(),
+        //     public_key,
+        //     60u64 * (self.auto_rotation_interval as u64),
+        //     account_token,
+        // );
+        // let (fut, cancel_handle) = Cancellable::new(fut);
 
-        if let Err(e) = self.tokio_remote.execute(fut.map_err(|_| ())) {
-            log::error!("Failed to execute auto key rotation: {:?}", e.kind());
-        }
-        self.abort_scheduler_tx = Some(cancel_handle);
+        // if let Err(e) = self.tokio_remote.execute(fut.map_err(|_| ())) {
+        //     log::error!("Failed to execute auto key rotation: {:?}", e.kind());
+        // }
+        // self.abort_scheduler_tx = Some(cancel_handle);
     }
 
     fn stop_automatic_rotation(&mut self) {
@@ -503,3 +506,4 @@ where
         }
     }
 }
+
