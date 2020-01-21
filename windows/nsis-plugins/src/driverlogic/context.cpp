@@ -29,6 +29,7 @@ namespace
 {
 
 const wchar_t TAP_HARDWARE_ID[] = L"tapmullvad0901";
+const wchar_t DEPRECATED_TAP_HARDWARE_ID[] = L"tap0901";
 
 template<typename T>
 void LogAdapters(const std::wstring &description, const T &adapters)
@@ -224,7 +225,7 @@ std::optional<std::wstring> GetDeviceRegistryStringProperty(
 	return { buffer.data() };
 }
 
-std::set<Context::NetworkAdapter> GetTapAdapters()
+std::set<Context::NetworkAdapter> GetTapAdapters(const std::wstring &tapHardwareId)
 {
 	std::set<Context::NetworkAdapter> adapters;
 
@@ -265,7 +266,7 @@ std::set<Context::NetworkAdapter> GetTapAdapters()
 
 		const auto hardwareId = GetDeviceRegistryStringProperty(devInfo, &devInfoData, SPDRP_HARDWAREID);
 		if (!hardwareId.has_value()
-			|| wcscmp(hardwareId.value().c_str(), TAP_HARDWARE_ID) != 0)
+			|| wcscmp(hardwareId.value().c_str(), tapHardwareId.c_str()) != 0)
 		{
 			continue;
 		}
@@ -359,7 +360,7 @@ std::optional<Context::NetworkAdapter> Context::FindMullvadAdapter(const std::se
 
 Context::BaselineStatus Context::establishBaseline()
 {
-	m_baseline = GetTapAdapters();
+	m_baseline = GetTapAdapters(TAP_HARDWARE_ID);
 
 	if (m_baseline.empty())
 	{
@@ -376,7 +377,7 @@ Context::BaselineStatus Context::establishBaseline()
 
 void Context::recordCurrentState()
 {
-	m_currentState = GetTapAdapters();
+	m_currentState = GetTapAdapters(TAP_HARDWARE_ID);
 }
 
 void Context::rollbackTapAliases()
@@ -425,9 +426,9 @@ Context::NetworkAdapter Context::getNewAdapter()
 }
 
 //static
-Context::DeletionResult Context::DeleteMullvadAdapter()
+Context::DeletionResult Context::DeleteOldMullvadAdapter()
 {
-	auto tapAdapters = GetTapAdapters();
+	auto tapAdapters = GetTapAdapters(DEPRECATED_TAP_HARDWARE_ID);
 	std::optional<NetworkAdapter> mullvadAdapter = FindMullvadAdapter(tapAdapters);
 
 	if (!mullvadAdapter.has_value())
@@ -471,7 +472,7 @@ Context::DeletionResult Context::DeleteMullvadAdapter()
 		const auto hardwareId = GetDeviceRegistryStringProperty(devInfo, &devInfoData, SPDRP_HARDWAREID);
 
 		if (hardwareId.has_value()
-			&& wcscmp(TAP_HARDWARE_ID, hardwareId.value().data()) == 0)
+			&& wcscmp(DEPRECATED_TAP_HARDWARE_ID, hardwareId.value().data()) == 0)
 		{
 			if (0 != GetNetCfgInstanceId(devInfo, devInfoData).compare(mullvadGuid))
 			{
