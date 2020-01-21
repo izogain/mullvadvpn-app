@@ -91,69 +91,6 @@ void __declspec(dllexport) NSISCALL Initialize
 }
 
 //
-// EstablishBaseline
-//
-// Call this function to establish a baseline W.R.T network adapters
-// present in the system.
-//
-// The return value reflects the status of TAP presence in the system.
-//
-enum class EstablishBaselineStatus
-{
-	GENERAL_ERROR = 0,
-	NO_TAP_ADAPTERS_PRESENT,
-	SOME_TAP_ADAPTERS_PRESENT,
-	MULLVAD_ADAPTER_PRESENT
-};
-
-void __declspec(dllexport) NSISCALL EstablishBaseline
-(
-	HWND hwndParent,
-	int string_size,
-	LPTSTR variables,
-	stack_t **stacktop,
-	extra_parameters *extra,
-	...
-)
-{
-	EXDLL_INIT();
-
-	if (nullptr == g_context)
-	{
-		pushstring(L"Initialize() function was not called or was not successful");
-		pushint(EstablishBaselineStatus::GENERAL_ERROR);
-		return;
-	}
-
-	try
-	{
-		using value_type = common::ValueMapper<Context::BaselineStatus, EstablishBaselineStatus>::value_type;
-
-		const common::ValueMapper<Context::BaselineStatus, EstablishBaselineStatus> mapper =
-		{
-			value_type(Context::BaselineStatus::NO_TAP_ADAPTERS_PRESENT, EstablishBaselineStatus::NO_TAP_ADAPTERS_PRESENT),
-			value_type(Context::BaselineStatus::SOME_TAP_ADAPTERS_PRESENT, EstablishBaselineStatus::SOME_TAP_ADAPTERS_PRESENT),
-			value_type(Context::BaselineStatus::MULLVAD_ADAPTER_PRESENT, EstablishBaselineStatus::MULLVAD_ADAPTER_PRESENT)
-		};
-
-		const auto status = mapper.map(g_context->establishBaseline());
-
-		pushstring(L"");
-		pushint(status);
-	}
-	catch (std::exception &err)
-	{
-		pushstring(common::string::ToWide(err.what()).c_str());
-		pushint(EstablishBaselineStatus::GENERAL_ERROR);
-	}
-	catch (...)
-	{
-		pushstring(L"Unspecified error");
-		pushint(EstablishBaselineStatus::GENERAL_ERROR);
-	}
-}
-
-//
 // RemoveOldMullvadTap
 //
 // Deletes the old Mullvad TAP adapter with ID tap0901.
@@ -245,60 +182,12 @@ void __declspec(dllexport) NSISCALL IdentifyNewAdapter
 
 	try
 	{
-		g_context->recordCurrentState();
-
-		auto adapter = g_context->getNewAdapter();
+		auto adapter = g_context->getAdapter();
 
 		pushstring(adapter.alias.c_str());
 		pushint(NsisStatus::SUCCESS);
 	}
 	catch (std::exception &err)
-	{
-		pushstring(common::string::ToWide(err.what()).c_str());
-		pushint(NsisStatus::GENERAL_ERROR);
-	}
-	catch (...)
-	{
-		pushstring(L"Unspecified error");
-		pushint(NsisStatus::GENERAL_ERROR);
-	}
-}
-
-//
-// RollbackTapAliases
-//
-// Updating the TAP driver may replace GUIDs and aliases.
-// Use this to restore the aliases to their baseline state.
-//
-
-void __declspec(dllexport) NSISCALL RollbackTapAliases
-(
-	HWND hwndParent,
-	int string_size,
-	LPTSTR variables,
-	stack_t** stacktop,
-	extra_parameters* extra,
-	...
-)
-{
-	EXDLL_INIT();
-
-	if (nullptr == g_context)
-	{
-		pushstring(L"Initialize() function was not called or was not successful");
-		pushint(NsisStatus::GENERAL_ERROR);
-		return;
-	}
-
-	try
-	{
-		g_context->recordCurrentState();
-		g_context->rollbackTapAliases();
-
-		pushstring(L"");
-		pushint(NsisStatus::SUCCESS);
-	}
-	catch (std::exception & err)
 	{
 		pushstring(common::string::ToWide(err.what()).c_str());
 		pushint(NsisStatus::GENERAL_ERROR);
